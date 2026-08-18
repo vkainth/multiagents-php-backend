@@ -251,7 +251,10 @@ Route::prefix('admin')->middleware([\App\Http\Middleware\VerifyAdminSecret::clas
     Route::post('platform-settings', [AgentDataController::class, 'updatePlatformSettings']);
 });
 
-Route::prefix('agent-portal')->middleware([\App\Http\Middleware\VerifyAdminSecret::class, 'throttle:120,1'])->group(function () {
+// 'throttle:agent-portal' (named, see AppServiceProvider) rather than the
+// inline 'throttle:120,1', which shared the api group's cache key and so
+// 429'd this surface whenever total api-internal traffic passed 120/min.
+Route::prefix('agent-portal')->middleware([\App\Http\Middleware\VerifyAdminSecret::class, 'throttle:agent-portal'])->group(function () {
     Route::post('auth',                           [AdminInternalController::class, 'agentPortalAuth']);
     Route::get('{id}/dashboard',                  [AdminInternalController::class, 'agentPortalDashboard'])->where('id', '[0-9]+');
     Route::get('{id}/leads',                      [AdminInternalController::class, 'agentPortalLeads'])->where('id', '[0-9]+');

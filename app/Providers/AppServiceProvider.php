@@ -5,6 +5,8 @@ namespace App\Providers;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Cache\RateLimiting\Limit;
 // use App\Models\Auth\FirebaseUser;
 use Laravel\Cashier\Cashier;
 use Stripe\Stripe;
@@ -69,6 +71,28 @@ class AppServiceProvider extends ServiceProvider
         // setlocale(LC_MONETARY, 'en_US.UTF-8');
         // --------- as BCCHv1 [ENDS] ------------
         
+        /**
+         * Named limiter for the agent-portal API.
+         *
+         * It previously used the inline form, 'throttle:120,1'. An unnamed
+         * throttle keys on $prefix . sha1(domain|ip) with $prefix empty, which
+         * is the SAME key the api middleware group's own throttle increments on
+         * every api-internal request. The portal was therefore checking a
+         * counter driven by all site traffic against its own limit of 120, so
+         * once total API traffic passed 120/min every agent-portal request
+         * started returning 429 regardless of portal activity.
+         *
+         * A named limiter is keyed md5($limiterName . $limit->key)
+         * (ThrottleRequests, line 131), giving this surface a bucket of its own.
+         * The key mirrors the original signature so the semantics are otherwise
+         * unchanged: 120 requests per minute per domain+IP.
+         */
+        RateLimiter::for('agent-portal', function ($request) {
+            return Limit::perMinute(120)->by(
+                ($request->route()?->getDomain() ?? '') . '|' . $request->ip()
+            );
+        });
+
         Gate::define('dev-dj', function ($user=null) {
             return in_array($user->email??auth()->user()?->email??'-', ['diljeet@pixilink.com']);
         });
