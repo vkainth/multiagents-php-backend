@@ -60,7 +60,6 @@
                         <li class=""><a href="{{route('our-solds')}}" class="drawer-menu-item">Solds</a></li>
                         {{--  <li class=""><a href="/agentlistings" class="drawer-menu-item">Featured Listings</a></li>  --}}
                         <!--<li class=""><a href="/sell.html" class="drawer-menu-item">Sell</a></li>-->
-                        <li class=""><a href="https://offerland.ca/offervest" target="_blank" class="drawer-menu-item nvOfferlandDealsLinkc2">Deals</a></li>
                         <li><a href="{{route('news-blog-list')}}" class="drawer-menu-item">News</a></li>
                         <li class="divider"> <hr /> </li>
                         <li class=""><a href="{{route('landing')}}" class="drawer-menu-item">Map Search</a></li>
@@ -89,7 +88,6 @@
                 <a href="{{route('our-solds')}}">Solds</a>
                 {{--  <a href="/agentlistings">Featured Listings</a>  --}}
                 <!--<a href="/sell.html">Sell</a>-->
-                <a href="https://offerland.ca/offervest" target="_blank" class=" nvOfferlandDealsLinkc2">Deals</a>
                 <a href="{{route('news-blog-list')}}">News</a>
                 <a href="{{route('logout')}}">Log out</a>
             </nav>
@@ -115,7 +113,6 @@
                     <li class=""><a href="{{route('our-solds')}}" class="drawer-menu-item">Solds</a></li>
                     {{--  <li class=""><a href="/agentlistings" class="drawer-menu-item">Featured Listings</a></li>  --}}
                     <!--<li class=""><a href="/sell.html" class="drawer-menu-item">Sell</a></li>-->
-                    <li class=""><a href="https://offerland.ca/offervest" target="_blank" class="drawer-menu-item nvOfferlandDealsLinkc2">Deals</a></li>
                     <li><a href="{{route('news-blog-list')}}" class="drawer-menu-item">News</a></li>
                     <li><a href="{{route('logout')}}" class="drawer-menu-item">Log out</a></li>
                 </ul>

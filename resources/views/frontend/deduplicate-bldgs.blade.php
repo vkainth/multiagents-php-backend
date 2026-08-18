@@ -105,7 +105,6 @@
                             <li class=""><a href="{{route('our-solds')}}" class="drawer-menu-item-X">Solds</a></li>
                             {{-- <li class=""><a href="/agentlistings" class="drawer-menu-item-X">Featured Listings</a></li> --}}
                             <!--<li class=""><a href="/sell.html" class="drawer-menu-item-X">Sell</a></li>-->
-                            <!-- <li class=""><a href="https://offerland.ca/offervest" target="_blank" class="drawer-menu-item-X nvOfferlandDealsLinkc2">Deals</a></li> -->
                             <li><a href="{{route('news-list')}}" class="drawer-menu-item-X">News</a></li>
                             <li class="divider">
                                 <hr />

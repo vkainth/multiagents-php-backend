@@ -989,7 +989,6 @@ header.site__header{padding: 10px;width: 100vw ;border-bottom: 1px solid #e4e4e4
                         user-email="johnsmith@example.com"
                         user-phone="222-222-2222">
                     </div>
-                    <script src="https://cdn.offerland.ca/widgets/offervalue_2step.js" client-id="c368ebd4-7a44-4487-9e83-43061f8986d2"> </script>  
                 </div>
                 </div>
                 </div>
@@ -1014,10 +1013,8 @@ header.site__header{padding: 10px;width: 100vw ;border-bottom: 1px solid #e4e4e4
                                     
                                     >
                                 </div>
-                                <script src="https://cdn.offerland.ca/widgets/offervalue_2step.js" client-id="c368ebd4-7a44-4487-9e83-43061f8986d2"> </script>  
                             </div>
 
-                            @include('frontend.includes.offerland_strata_reports_widget',['building'=>$building,'listing'=>$listing??null])
                             @endif
 
                             {{-- Open house dates hidden from page display; kept in JSON-LD schema only --}}

@@ -33,7 +33,6 @@ else{
                 <a href="/statistics">Market Insights</a>
                 <a href="/featured-listings">Featured</a>
                 <a href="{{route('our-solds')}}">Solds</a>
-                <a href="https://offerland.ca/offervest" target="_blank">Deals</a>
                 <a href="{{route('news-blog-list')}}">News</a>
 
                 <!--<a href="/sell.html">Sell</a>-->
@@ -61,7 +60,6 @@ else{
                     <li class=""><a href="/statistics" class="drawer-menu-item">Market Insights</a></li>
                     <li class=""><a href="/featured-listings" class="drawer-menu-item">Featured</a></li>
                     <li class=""><a href="{{route('our-solds')}}" class="drawer-menu-item">Solds</a></li>
-                    <li class=""><a href="https://offerland.ca/offervest" target="_blank" class="drawer-menu-item">Deals</a></li>
                     <li class=""><a href="{{route('news-blog-list')}}" class="drawer-menu-item">News</a></li>
                     
                     <!--<li class=""><a href="/sell.html" class="drawer-menu-item">Sell</a></li>-->
