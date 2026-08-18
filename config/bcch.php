@@ -26,10 +26,6 @@ return [
         // trustworthy while TrustProxies::$proxies === '*'. Populate this only
         // after narrowing TrustProxies.
         'allowed_ips' => array_filter(explode(',', (string) env('DEV_ALLOWED_IPS', ''))),
-
-        // External partner token for /api/offerland-reqs (was a hardcoded
-        // literal in routes/dev/prod_quick_devs.php until 2026-08-17).
-        'offerland_token' => env('OFFERLAND_AUTH_TOKEN', ''),
     ],
 
     'alert_api_key'      => env('ALERT_API_KEY'),

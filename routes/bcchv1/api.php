@@ -53,8 +53,8 @@ Route::get('/subareas', 'App\Http\Controllers\Frontend\UserController@subareaLis
 
 
 
-// for-tests---
-Route::get('/offerlandprice/{ml_no?}', 'App\Http\Controllers\Frontend\OfferlandPriceController@testFunction')->name('api:offerland_test');
+// REMOVED 2026-08-17: api2/offerlandprice leaked the same dd() dump of
+// offerland_prices as the web route. See routes/bcchv1/web.php.
 
 // Route::any('/test/{slug}-for-sale-{subarea?}', 'App\Http\Controllers\Frontend\DashboardController@get_api_for_sale')->where('slug', '[A-Za-z0-9_\-]+')->where('subarea', '(.*)')->where('subarea', '[A-Za-z0-9_\-]+')->name('api:get_slug_filtered_listings_for_sale')/*->middleware('api.auth')*/; // [disabled:05-06-2022]
 // Route::any('/test/adv-search-properties', 'App\Http\Controllers\Frontend\DashboardController@get_api_adv_search_properties_per_city_subarea')->name('api:get_adv_search_filtered_listings_for_sale__test_deleteOn30Jan2022')/*->middleware('csrf')*//*->middleware('api.auth')*/;

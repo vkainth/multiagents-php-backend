@@ -11,7 +11,11 @@ Route::middleware(\App\Http\Middleware\RestrictDevRoutes::class)->prefix('agents
     Route::get('/api/recent-visitors/{mode}/{slug}', function (Request $request, $mode, $slug=null) {
 
         $_retArrErr = ['status'=>'error','error'=>'failed!'];
-        $_retArr = ['status'=>'success','view_count'=> 0, 'recent_users'=>[]];
+        // 'recent_viewers' is initialised here because line ~63 reads it in the
+        // false branch of a ternary. Only 'recent_users' used to be set, so any
+        // building with zero viewers 500'd on an undefined array key.
+        // 'recent_users' is kept so the response shape is unchanged.
+        $_retArr = ['status'=>'success','view_count'=> 0, 'recent_users'=>[], 'recent_viewers'=>[]];
 
         $_selectFields = ['first', 'last', 'phone_country_code', 'phone', 'email', 'profile_image', /* 'role', 'last_login', 'device', 'property_suggestion_emails', 'trial_start_date', 'trial_end_date', 'client_type', 'work_with_realtor'*/ ];
 
@@ -69,18 +73,17 @@ Route::middleware(\App\Http\Middleware\RestrictDevRoutes::class)->prefix('agents
 });
 
 
-Route::get('/api/offerland-reqs', function (Request $request) {
-    @header("Access-Control-Allow-Origin: *");
+/*
+ * REMOVED 2026-08-17: /api/offerland-reqs dumped every active listing to any
+ * caller holding X-Auth-Token, whose value was a literal committed in this
+ * file because the env fallback name (OFFERLAND-AUTH-TOKEN-202505-REQ) is not
+ * a valid dotenv identifier and never resolved.
+ *
+ * Removed at the operator's request: the integration is not in use. Confirmed
+ * unused first -- zero hits in any access log, live or archived, and no caller
+ * in bcchv2 or sswr-app. The offerland.ca links and the cdn.offerland.ca
+ * widget in the building views are a separate, inbound integration and are
+ * unaffected.
+ */
 
-    $token = $request->header('X-Auth-Token');
-    
-    if (!auth()?->user()?->can('dev-dj-approve') && $token !== env('OFFERLAND-AUTH-TOKEN-202505-REQ','ofrld278syt3e45FbXa3ca30f73j')) {
-        return response()->json(['error' => 'Unauthorized'], 401);
-    }
-    // $_data = App\Models\Listings::active()->pluck('mls','beds','baths');
-    $_data = App\Models\Listings::active()->select(['listingid','bedrooms','bathstotal'])->simplePaginate(10000);
-
-    return response()->json($_data);
-
-});
 

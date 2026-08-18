@@ -409,10 +409,20 @@ Route::controller('App\Http\Controllers\Frontend\StatsController')->group(functi
         Route::get('/market-stats/{citySlug?}/{subareaOrTypeSlug?}/{typeSlug?}', 'getStatsNew')->name('getStatsNew');
 });
 
-Route::controller('App\Http\Controllers\Frontend\OfferlandPriceController')->group(function(){
-        Route::get('/offerlandprice/{ml_no?}', 'testFunction')->name('offerland-test');
-        Route::get('/export/data-for-offerland/{mode?}', 'exportCsvToOfferland')->whereIn('mode', ['json', 'csv'])->name('data-out.for-offerland');
-});
+/*
+ * REMOVED 2026-08-17: the OfferlandPriceController routes.
+ *
+ * /offerlandprice/{ml_no?} answered anonymously with dd() of 50 rows from
+ * offerland_prices (~25M rows) -- 312KB of ml_no / offer_value dumped to any
+ * caller. dd()'s exit(1) made it look like a broken 500 while it was in fact
+ * serving data. It also accepted ?create=<hardcoded literal> to trigger a DB
+ * import. /export/data-for-offerland pointed at exportCsvToOfferland(), a
+ * method that does not exist on the controller, and only ever 500'd.
+ *
+ * Removed at the operator's request: Offerland is not in use. Zero hits in
+ * any access log, live or archived. The controller itself is left in place;
+ * only the public routes are gone.
+ */
 
 Route::controller('App\Http\Controllers\SitemapController')->prefix('/sitemap')->name('sitemap.')->group(function(){
         Route::get('/index.xml', 'sitemap_index')->name('index');
