@@ -4679,7 +4679,7 @@ class AgentDataController extends Controller
      */
     public function testGhlPush(\Illuminate\Http\Request $request): \Illuminate\Http\JsonResponse
     {
-        if ($request->header('X-Admin-Secret') !== config('app.admin_secret')) {
+        if ($request->header('X-Admin-Secret') !== config('app.admin_api_secret')) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
@@ -4733,7 +4733,7 @@ class AgentDataController extends Controller
 
     public function adminLandingPagesList(Request $req, int $agentId): JsonResponse
     {
-        if ($req->header('X-Admin-Secret') !== config('app.admin_secret')) {
+        if ($req->header('X-Admin-Secret') !== config('app.admin_api_secret')) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
@@ -4751,7 +4751,7 @@ class AgentDataController extends Controller
      */
     public function adminLandingPagesCreate(Request $req, int $agentId): JsonResponse
     {
-        if ($req->header('X-Admin-Secret') !== config('app.admin_secret')) {
+        if ($req->header('X-Admin-Secret') !== config('app.admin_api_secret')) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
@@ -4786,7 +4786,7 @@ class AgentDataController extends Controller
      */
     public function adminLandingPagesUpdate(Request $req, int $agentId, int $pageId): JsonResponse
     {
-        if ($req->header('X-Admin-Secret') !== config('app.admin_secret')) {
+        if ($req->header('X-Admin-Secret') !== config('app.admin_api_secret')) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
@@ -4821,7 +4821,7 @@ class AgentDataController extends Controller
      */
     public function adminLandingPagesDelete(Request $req, int $agentId, int $pageId): JsonResponse
     {
-        if ($req->header('X-Admin-Secret') !== config('app.admin_secret')) {
+        if ($req->header('X-Admin-Secret') !== config('app.admin_api_secret')) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
