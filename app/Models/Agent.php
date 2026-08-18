@@ -17,6 +17,10 @@ class Agent extends Authenticatable
     protected $fillable = [
         'name', 'slug', 'brokerage', 'phone', 'email', 'photo_path', 'headshot_path', 'bio',
         'theme_slug', 'theme_color', 'logo_path', 'license_number', 'status', 'password',
+        // Brand colours were validated by AdminInternalController::agentUpdate() and
+        // sent by the admin settings form, but omitted here -- so update() silently
+        // dropped them and the brand background could never actually be changed.
+        'primary_bg_color', 'brand_text_color',
     ];
 
     protected $hidden = ['password', 'remember_token'];
