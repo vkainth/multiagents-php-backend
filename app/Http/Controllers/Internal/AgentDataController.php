@@ -1363,12 +1363,21 @@ class AgentDataController extends Controller
                     ->whereNotNull('soldprice_2')
                     ->where('soldprice_2', '>', 0)
                     ->where('sold_date', '>=', now()->subMonths(12)->format('Y-m-d'))
+                    // livingarea is varchar(15) holding formatted text such as
+                    // "1,975 sqft", so dividing by it directly makes MySQL coerce
+                    // the string to 1 -- it stops parsing at the comma -- and
+                    // avg_per_sqft came back equal to the sale price. Terrane
+                    // reported $743,000 per square foot.
+                    //
+                    // Prefer livingarea_2, which is int(11) and populated for
+                    // essentially every sold listing, and fall back to the parsed
+                    // varchar. Same idiom already used further down this file.
                     ->selectRaw('
                         COUNT(*) as sold_count,
                         ROUND(AVG(soldprice_2)) as avg_sold_price,
                         ROUND(MAX(soldprice_2)) as expensive_sold,
                         ROUND(AVG(DATEDIFF(sold_date, list_date))) as avg_dom,
-                        ROUND(AVG(soldprice_2 / NULLIF(livingarea, 0))) as avg_per_sqft
+                        ROUND(AVG(soldprice_2 / NULLIF(CAST(REPLACE(COALESCE(NULLIF(livingarea_2,0), livingarea, "0"), ",", "") AS DECIMAL(10,2)), 0))) as avg_per_sqft
                     ')
                     ->first();
                 if ($stats && $stats->sold_count > 0) {
@@ -2074,7 +2083,7 @@ class AgentDataController extends Controller
                 ->whereIn('subarea', $subareas)
                 ->where('sold_date', '>=', now()->subDays(30)->format('Y-m-d'))
                 ->whereNotNull('soldprice_2')->where('soldprice_2', '>', 0)
-                ->selectRaw('subarea, COUNT(*) as sold_count, AVG(soldprice_2) as avg_sold_price, AVG(DATEDIFF(sold_date, list_date)) as avg_dom, AVG(soldprice_2/NULLIF(livingarea,0)) as avg_per_sqft')
+                ->selectRaw('subarea, COUNT(*) as sold_count, AVG(soldprice_2) as avg_sold_price, AVG(DATEDIFF(sold_date, list_date)) as avg_dom, AVG(soldprice_2/NULLIF(CAST(REPLACE(COALESCE(NULLIF(livingarea_2,0), livingarea, "0"), ",", "") AS DECIMAL(10,2)),0)) as avg_per_sqft')
                 ->groupBy('subarea')
                 ->get();
             foreach ($rows as $row) {
@@ -2340,7 +2349,7 @@ class AgentDataController extends Controller
             ->whereNotNull('soldprice_2')->where('soldprice_2', '>', 0)
             ->whereNotNull('sold_date')
             ->where('sold_date', '>=', now()->subMonths(12)->format('Y-m-d'))
-            ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, COUNT(*) as sold, AVG(soldprice_2) as avg_price, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(livingarea,0)) as avg_ppsf")
+            ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, COUNT(*) as sold, AVG(soldprice_2) as avg_price, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(CAST(REPLACE(COALESCE(NULLIF(livingarea_2,0), livingarea, '0'), ',', '') AS DECIMAL(10,2)),0)) as avg_ppsf")
             ->groupBy('month')
             ->orderBy('month')
             ->get();
@@ -2890,7 +2899,7 @@ class AgentDataController extends Controller
             ->whereNotNull('soldprice_2')->where('soldprice_2', '>', 0)
             ->whereNotNull('sold_date')
             ->where('sold_date', '>=', now()->subMonths(36)->format('Y-m-d'))
-            ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, COUNT(*) as sold, AVG(soldprice_2) as avg_price, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(livingarea,0)) as avg_ppsf")
+            ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, COUNT(*) as sold, AVG(soldprice_2) as avg_price, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(CAST(REPLACE(COALESCE(NULLIF(livingarea_2,0), livingarea, '0'), ',', '') AS DECIMAL(10,2)),0)) as avg_ppsf")
             ->groupBy('month')->orderBy('month')->get();
 
         // ── Active-count per trend month (months-of-inventory badge) ──────
@@ -3005,7 +3014,7 @@ class AgentDataController extends Controller
             ->whereNotNull('soldprice_2')->where('soldprice_2','>',0)
             ->whereNotNull('sold_date')
             ->where('sold_date','>=',now()->subMonths(36)->format('Y-m-d'))
-            ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, COUNT(*) as sold, AVG(soldprice_2) as avg_price, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(livingarea,0)) as avg_ppsf")
+            ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, COUNT(*) as sold, AVG(soldprice_2) as avg_price, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(CAST(REPLACE(COALESCE(NULLIF(livingarea_2,0), livingarea, '0'), ',', '') AS DECIMAL(10,2)),0)) as avg_ppsf")
             ->groupBy('month')->orderBy('month')->get();
 
         // ── Per-month active inventory (expiration_date-aware) ────────────
@@ -3046,7 +3055,7 @@ class AgentDataController extends Controller
             ->whereNotNull('sold_date')
             ->where('sold_date','>=',now()->subMonths(36)->format('Y-m-d'))
             ->whereNotNull('type')->where('type','!=','')
-            ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, {$typeBucketCase} as bucket, AVG(soldprice_2) as avg_price, COUNT(*) as sold_count, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(livingarea,0)) as avg_ppsf")
+            ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, {$typeBucketCase} as bucket, AVG(soldprice_2) as avg_price, COUNT(*) as sold_count, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(CAST(REPLACE(COALESCE(NULLIF(livingarea_2,0), livingarea, '0'), ',', '') AS DECIMAL(10,2)),0)) as avg_ppsf")
             ->groupBy('month','bucket')->orderBy('month')->get();
 
         $byTypeMonths = [];
@@ -6367,7 +6376,7 @@ class AgentDataController extends Controller
                 ->whereNotNull('soldprice_2')->where('soldprice_2', '>', 0)
                 ->whereNotNull('sold_date')
                 ->where('sold_date', '>=', now()->subMonths(12)->format('Y-m-d'))
-                ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, COUNT(*) as sold, AVG(soldprice_2) as avg_price, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(livingarea,0)) as avg_ppsf")
+                ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, COUNT(*) as sold, AVG(soldprice_2) as avg_price, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(CAST(REPLACE(COALESCE(NULLIF(livingarea_2,0), livingarea, '0'), ',', '') AS DECIMAL(10,2)),0)) as avg_ppsf")
                 ->groupBy('month')->orderBy('month')->get();
 
             $typeBucketCase =
