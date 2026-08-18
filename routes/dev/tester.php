@@ -53,6 +53,7 @@ Route::withoutMiddleware([
 	});
 
 	Route::get('/sync/few/{count?}',function($count=10){
+		$count = max(1, min(50, (int) $count));
 
 		$b = \App\Models\Buildings::where('bcc_id','!=','')->inRandomOrder()->take($count)->cursor();
 
@@ -85,27 +86,17 @@ Route::withoutMiddleware([
 		return response()->json($bcnIC ? ['status'=>'success','reset_at'=>$bcnIC?->updated_at?->format('Y-m-d h:i:s')] : ['status'=>'error','error'=>'no-matching-record!']);
 	})->name('building-resync-cache');
 
-	Route::get('/building-actions/force-sync/{slug}',function($slug=null){
-		@header('Access-Control-Allow-Origin: *');
-		if(!$slug) return response()->json(['status'=>'error','error'=>'Failed!']);
-		$retData = ['status'=>'error'];
-		$bcnid = request()->input('bcnid');
-		$result = (@include_once(__DIR__.'/dynasyncscript.php'))??false;// discussion + pytorevert
-		if(is_array($result??false)){
-			$retData=array_merge($retData,$result);
-			$retData['msg'] = 'synced';
-			// $retData['error'] = 'failed';
-		}else{
-			$retData['result'] = $result??false;
-			$retData['msg'] = 'failed';
-			$retData['error'] = 'failed';
-		}
-		$bcnIC = \App\Models\Buildings::where('slug',$slug)->first()?->bcnInfoCached->notOlderThan('1 seconds');
-		$retData['cacheReset'] = ($bcnIC?true:false);
-		$retData['cacheUpdatedAt'] = $bcnIC?->updated_at?->format('Y-m-d h:i:s') ?? '-';
-		return response()->json($retData);
+	/*
+	 * REMOVED 2026-08-17: /building-actions/force-sync/{slug} included
+	 * dynasyncscript.php, which curled diljeet.net with SSL verification
+	 * disabled and eval()'d the response body, while POSTing $_SERVER to
+	 * that host. Auth alone does not make remote-code-eval safe. Nothing
+	 * referenced it: no caller in bcchv2, sswr-app, any cron or the
+	 * scheduler, and zero hits in any access log, live or archived.
+	 * If the sync is still needed, reimplement it as a signed JSON
+	 * contract that is parsed, never evaluated.
+	 */
 
-	});
 
 
 	Route::get('/sitemap', function(){ return redirect(route('test.sitemap-searchpages')); });
