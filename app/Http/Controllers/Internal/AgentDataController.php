@@ -3179,10 +3179,7 @@ class AgentDataController extends Controller
         $abWhitelist = ($abSettingsRow && $abSettingsRow->subarea_whitelist)
             ? json_decode($abSettingsRow->subarea_whitelist, true) : null;
 
-        $q = Buildings::whereIn('city', $cities)
-            ->when(!empty($abWhitelist), function ($query) use ($abWhitelist) {
-                $query->whereIn('subarea', $abWhitelist);
-            })
+        $q = $this->agentBuildingsScope($cities, $abWhitelist)
             ->when($req->query('missing_only'), function ($query) {
                 $query->where(function ($q) {
                     $q->whereNull('tagline')->orWhere('tagline', '');
@@ -3257,6 +3254,109 @@ class AgentDataController extends Controller
             'total' => $total,
             'page'  => $page,
             'limit' => $limit,
+        ]);
+    }
+
+    /**
+     * Persona tags offered by the batch-generate UI. Kept in sync with
+     * PERSONA_TAG_LABELS in
+     * pixilink-web/src/app/admin/buildings/batch-generate/page.tsx.
+     *
+     * Amenity tags (air_conditioning, panel_fridge, gas_appliances,
+     * electric_appliances) are deliberately excluded: the UI does not treat a
+     * building as tagged on the strength of those alone, so counting them here
+     * would report work as done that the queue still offers.
+     */
+    private const BUILDING_PERSONA_TAGS = [
+        'elevator', 'one-level-living', 'age-55-plus', 'low-strata-fee',
+        'small-complex', 'pet-friendly', 'luxury-finishes', 'custom-millwork',
+        'spa-ensuite', 'high-end-renovation', 'designer-kitchen',
+        'high-end-appliances', 'sub-zero', 'wolf', 'viking', 'miele',
+        'thermador', 'fisher-paykel', 'bosch',
+    ];
+
+    /**
+     * The set of buildings an agent's admin tools operate on: every building in
+     * the agent's territory cities, narrowed by the subarea whitelist when one
+     * is configured.
+     *
+     * Shared with adminAgentBuildingsStats() so the coverage numbers cannot
+     * drift away from the queue they describe.
+     */
+    private function agentBuildingsScope(array $cities, ?array $subareaWhitelist)
+    {
+        return Buildings::whereIn('city', $cities)
+            ->when(!empty($subareaWhitelist), function ($query) use ($subareaWhitelist) {
+                $query->whereIn('subarea', $subareaWhitelist);
+            });
+    }
+
+    /**
+     * Generation coverage for an agent's buildings.
+     * GET /api-internal/admin/agents/{id}/buildings/stats
+     *
+     * Answers "how many in total, how many generated, how many left" for each
+     * mode the batch-generate page offers. COUNT queries only -- no row
+     * hydration and none of the per-building listing aggregates that make
+     * adminAgentBuildings() expensive -- so it is cheap enough to refetch after
+     * every run.
+     *
+     * The "generated" definitions mirror the missing_only and
+     * missing_features_only filters in adminAgentBuildings() exactly, so
+     * `remaining` always equals the number of rows that endpoint would return.
+     */
+    public function adminAgentBuildingsStats(Request $req, int $agentId): JsonResponse
+    {
+        $agent = Agent::with(['territories'])->where('id', $agentId)->first();
+        if (! $agent) return response()->json(['error' => 'Agent not found'], 404);
+
+        $empty  = ['generated' => 0, 'remaining' => 0];
+        $cities = $agent->territories->pluck('city')->filter()->unique()->values()->toArray();
+        if (empty($cities)) {
+            return response()->json([
+                'total' => 0, 'cities' => [], 'subarea_whitelist_count' => 0,
+                'description' => $empty, 'features' => $empty, 'tags' => $empty,
+            ]);
+        }
+
+        $settingsRow = \Illuminate\Support\Facades\DB::table('agent_settings')
+            ->where('agent_id', $agent->id)->first();
+        $whitelist = ($settingsRow && $settingsRow->subarea_whitelist)
+            ? json_decode($settingsRow->subarea_whitelist, true) : null;
+
+        $total = $this->agentBuildingsScope($cities, $whitelist)->count();
+
+        // Missing a description == tagline AND description both blank, matching
+        // the missing_only filter in adminAgentBuildings().
+        $missingDescription = $this->agentBuildingsScope($cities, $whitelist)
+            ->where(function ($q) { $q->whereNull('tagline')->orWhere('tagline', ''); })
+            ->where(function ($q) { $q->whereNull('description')->orWhere('description', ''); })
+            ->count();
+
+        $missingFeatures = $this->agentBuildingsScope($cities, $whitelist)
+            ->where(function ($q) { $q->whereNull('ai_features_json')->orWhere('ai_features_json', ''); })
+            ->count();
+
+        // Tags live in a JSON array inside a longtext column, so they are
+        // counted in PHP. Only buildings carrying at least one persona tag count
+        // as generated -- a row holding only amenity tags, or an empty array,
+        // is still outstanding work.
+        $ids = $this->agentBuildingsScope($cities, $whitelist)
+            ->pluck('id')->map(fn ($v) => (string) $v)->toArray();
+        $tagged = 0;
+        foreach ($this->fetchAiTagsMap('building_ai_tags', 'building_id', $ids) as $tags) {
+            if (array_intersect($tags, self::BUILDING_PERSONA_TAGS)) {
+                $tagged++;
+            }
+        }
+
+        return response()->json([
+            'total'                   => $total,
+            'cities'                  => $cities,
+            'subarea_whitelist_count' => is_array($whitelist) ? count($whitelist) : 0,
+            'description' => ['generated' => $total - $missingDescription, 'remaining' => $missingDescription],
+            'features'    => ['generated' => $total - $missingFeatures,    'remaining' => $missingFeatures],
+            'tags'        => ['generated' => $tagged,                      'remaining' => $total - $tagged],
         ]);
     }
 

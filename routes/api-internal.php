@@ -205,6 +205,9 @@ Route::prefix('admin')->middleware([\App\Http\Middleware\VerifyAdminSecret::clas
     Route::get('leads/{userId}/property-views', [AgentDataController::class, 'getLeadPropertyViews'])->where('userId', '[0-9]+');
     Route::put('agents/{id}/features', [AdminInternalController::class, 'agentFeatures'])->where('id', '[a-zA-Z0-9_-]+');
     Route::get('agents/{agentId}/buildings', [AgentDataController::class, 'adminAgentBuildings'])->where('agentId', '[0-9]+');
+    // Generation coverage (total / generated / remaining per mode) for the
+    // batch-generate page. COUNT-only, safe to poll after each run.
+    Route::get('agents/{agentId}/buildings/stats', [AgentDataController::class, 'adminAgentBuildingsStats'])->where('agentId', '[0-9]+');
     Route::get('agents/{agentId}/listings', [AgentDataController::class, 'adminAgentListings'])->where('agentId', '[0-9]+');
     Route::post('agents/{id}/upload-photo', [AgentDataController::class, 'uploadAgentPhoto'])->where('id', '[a-zA-Z0-9_-]+');
 
