@@ -1,0 +1,129 @@
+@import url('https://fonts.googleapis.com/css?family=Roboto:400,500,700');
+
+html,
+body {
+    height: 100%;
+}
+body {
+	font-family: 'Roboto', sans-serif;
+	font-size: 15px;
+}
+body {
+    width: 100%;
+}
+h2, h3 {
+    color: #333333;
+}
+h2 {
+    font-family: 'Roboto', sans-serif;
+    font-size: 4rem; /* 40px */
+    font-weight: 700;
+    text-transform: uppercase;
+}
+h3 {
+    font-family: 'Roboto', sans-serif;
+    font-size: 2.7rem; /* 40px */
+    font-weight: 700;
+}
+
+/***** START HEADER *****/
+.site__header {
+    background-color: #EE4223;
+    padding: 15px 10px;
+}
+.header__userInfo .username {
+    float: left;
+}
+.header__userInfo .username__image {
+    float: right;
+}
+/***** END HEADER *****/
+
+/***** START SLIDEOUT *****/
+.toggle-button {
+    display: inline-block;
+    cursor: pointer;
+    padding: 10px;
+}
+.slideout-menu {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: 256px;
+    min-height: 100vh;
+    overflow-y: scroll;
+    -webkit-overflow-scrolling: touch;
+    z-index: 0;
+    display: none;
+}
+.slideout-menu-left {
+    left: 0;
+}
+.slideout-menu-right {
+    right: 0;
+}
+.slideout-panel {
+    position: relative;
+    z-index: 1;
+    will-change: transform;
+    background-color: #FFF; /* A background-color is required */
+    min-height: 100vh;
+}
+.slideout-open,
+.slideout-open body,
+.slideout-open .slideout-panel {
+    overflow: hidden;
+}
+.slideout-open .slideout-menu {
+    display: block;
+}
+/***** END SLIDEOUT *****/
+
+/***** START LISTING OVERVIEW *****/
+.listing__item {
+    box-shadow: 0 2px 4px 0 rgba(77, 77, 77, 0.5);
+}
+.listing__item .listing__image {
+    /*width: 300px;*/
+    width: 100%;
+    height: 200px;
+    background-size: cover;
+    background-position: center;
+}
+.listing__item .listing__content {
+    padding: 10px 15px;
+    font-size: 12px;
+}
+.listing__item .listing__icon {
+    padding-right: 10px;
+}
+.listing__item .listing__icon img {
+    height: 40px;
+}
+.listing__item .listing__icon div {
+    text-align: center;
+    text-transform: uppercase;
+    padding-top: 5px;
+}
+.listing__item .listing__icon div.sold {
+    color: #df4611;
+}
+.listing__item .listing__price {
+    font-size: 18px;
+    font-weight: bold;
+}
+.listing__item .listing__address .big {
+    font-size: 15px;
+    font-weight: 500;
+}
+.listing__item .listing__amenities {
+    padding: 10px 0;
+}
+.listing__item .listing__listedBy {
+    font-size: 10px;
+}
+/***** END LISTING OVERVIEW *****/
+
+@media (max-width: 991px) {
+
+}

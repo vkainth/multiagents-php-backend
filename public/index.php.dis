@@ -1,0 +1,5 @@
+<?php 
+	// echo ( json_validate('{"a":[23,43],"c2":"val2"}')?'':'Not' ).' Working..';
+	include_once(__DIR__.'/../index_lv.php');
+	
+

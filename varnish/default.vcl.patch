@@ -1,0 +1,33 @@
+--- a/etc/varnish/default.vcl
++++ b/etc/varnish/default.vcl
+@@ -13,12 +13,15 @@
+ # Cookie-based cache bypass rules
+ # (approximate lines 13-25 of current production VCL)
+
+-    # BUG: bccondosandhomes_session check is dead code — unreachable because
+-    # return(pass) on line above exits the if block before the inner if runs.
+-    if (req.http.Cookie ~ "logged_in=1") {
+-        return(pass);
+-        if (req.http.Cookie ~ "bccondosandhomes_session=") {
+-            return(pass);
+-        }
+-    }
++    # FIX: Two independent if blocks so session-cookie bypass works even when
++    # logged_in=1 cookie has expired (e.g. after 2-hour Varnish TTL hits).
++    if (req.http.Cookie ~ "logged_in=1") {
++        return(pass);
++    }
++    if (req.http.Cookie ~ "bccondosandhomes_session=") {
++        return(pass);
++    }
+
+-    # Pass /handle_auth through cache (exact match or prefix — verify which form
+-    # is currently used and adjust accordingly)
+-    if (req.url ~ "^/handle_auth$") {
+-        return(pass);
+-    }
++    # Pass both handle_auth (GET, standalone login page) and
++    # handle_auth-json (POST, modal AJAX login) through cache.
++    if (req.url ~ "^/handle_auth") {
++        return(pass);
++    }

@@ -1,0 +1,5 @@
+# php -- custom version for this directory
+# <IfModule mime_module>
+  #AddHandler application/x-httpd-ea-php72 .php .php7
+  #AddHandler application/x-httpd-ea-php72 .php
+# </IfModule>

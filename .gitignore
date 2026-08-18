@@ -1,0 +1,84 @@
+# ---- Secrets: NEVER commit ----
+.env
+.env.*
+!.env.example
+public/api_building/.env
+public/api_building/.env.*
+
+# ---- Dependencies ----
+vendor/
+node_modules/
+public/api_building/vendor/
+
+# ---- Laravel runtime ----
+storage/logs/
+storage/framework/
+storage/backups/
+bootstrap/cache/
+.phpunit.result.cache
+
+# ---- Logs ----
+*.log
+*.log.gz
+*.log.[0-9]*
+error_log
+public/error_log
+
+# ---- Backup / scratch files ----
+*.bak
+*.bak_*
+*.bak-*
+*.bak.*
+*.bkp
+*.bkp_*
+*.bkp.*
+*.pre-*
+*.orig
+*.old
+*.save
+*.swp
+*~
+*.good.*
+*.good_*
+*.good[0-9]*
+*.[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].*
+*.sinceDjCloned_*
+*.notFullySyncedWithBCCH.*
+*.withBCCH-changes.*
+*.onlyTableNameUpdate*
+*.php8.bkp
+* copy.*
+*copyFailed*.txt
+routes/*.bak_*
+routes/**/*.bak_*
+.gitignore.orig_before_init
+
+# ---- Certificates / keys ----
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.ppk
+*.jks
+id_rsa*
+*service-account*.json
+*credentials*.json
+*firebase*.json
+
+# ---- One-off / maintenance scripts (not part of the app) ----
+database/scripts/
+
+# ---- DB dumps / data exports ----
+*.sql
+*.sql.gz
+*.dump
+*.sqlite
+
+# ---- Editor / OS ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.replit-artifact/

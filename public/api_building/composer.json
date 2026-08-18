@@ -1,0 +1,15 @@
+{
+    "require": {
+        "vlucas/phpdotenv": "^2.4",
+        "spomky-labs/jose": "^7.1",
+        "guzzlehttp/psr7": "^1.4"
+    },
+    "require-dev": {
+        "laravel/homestead": "10.10"
+    },
+    "autoload": {
+        "psr-4": {
+            "Src\\": "src/"
+        }
+    }
+}
