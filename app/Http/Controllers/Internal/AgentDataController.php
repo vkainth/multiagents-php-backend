@@ -1242,6 +1242,37 @@ class AgentDataController extends Controller
             ->first();
         if (! $building) return response()->json(['error' => 'Building not found'], 404);
 
+        // Confine the building to the agent's territory.
+        //
+        // This endpoint used to serve ANY building in the database on ANY agent's
+        // domain: all 14,710 of them, against the 2,092 actually in randy's
+        // territory. A building in Cranbrook rendered a full page on a Fraser
+        // Valley site. Those pages are thin, irrelevant and indexable, which
+        // dilutes exactly the topical authority a local site depends on.
+        //
+        // The scope matches adminAgentBuildings() and the buildings sitemap, so
+        // nothing that is linked or advertised changes: all 1,000 slugs in
+        // sitemap-buildings.xml were verified to fall inside it. Out-of-scope
+        // slugs now 404, which is the honest answer -- that building is not part
+        // of this site.
+        $agentForScope = Agent::with(['territories'])->where('slug', $slug)->first();
+        if ($agentForScope) {
+            $scopeCities = $agentForScope->territories->pluck('city')->filter()->unique()->values()->toArray();
+            if (! empty($scopeCities)) {
+                $scopeRow = \Illuminate\Support\Facades\DB::table('agent_settings')
+                    ->where('agent_id', $agentForScope->id)->first();
+                $scopeWhitelist = ($scopeRow && $scopeRow->subarea_whitelist)
+                    ? json_decode($scopeRow->subarea_whitelist, true) : null;
+
+                $inScope = $this->agentBuildingsScope($scopeCities, $scopeWhitelist)
+                    ->where('slug', $buildingSlug)
+                    ->exists();
+                if (! $inScope) {
+                    return response()->json(['error' => 'Building not found'], 404);
+                }
+            }
+        }
+
         // Pre-construction buildings (no strata_no, or yearbuilt in future) must not
         // query MLS by strata_no — it would pull wrong cross-province listings.
         $isPreConstruction = empty($building->strata_no)
