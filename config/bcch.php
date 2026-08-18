@@ -20,6 +20,18 @@ return [
         'log_max_stacks_count' => env('LOG_MAX_STACKS_COUNT',4),
     ],
 
+    'dev' => [
+        // CIDRs or bare IPs matched against REMOTE_ADDR only. Empty by default:
+        // behind Varnish REMOTE_ADDR is 127.0.0.1, and X-Forwarded-For is not
+        // trustworthy while TrustProxies::$proxies === '*'. Populate this only
+        // after narrowing TrustProxies.
+        'allowed_ips' => array_filter(explode(',', (string) env('DEV_ALLOWED_IPS', ''))),
+
+        // External partner token for /api/offerland-reqs (was a hardcoded
+        // literal in routes/dev/prod_quick_devs.php until 2026-08-17).
+        'offerland_token' => env('OFFERLAND_AUTH_TOKEN', ''),
+    ],
+
     'alert_api_key'      => env('ALERT_API_KEY'),
     'alert_api_key_test' => env('ALERT_API_KEY_TEST', ''),
     'alert_webhook_url'  => env('ALERT_WEBHOOK_URL', 'https://admin.bccondosandhomes.com/webhooks/bcch-alerts'),
