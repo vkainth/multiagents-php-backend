@@ -190,7 +190,12 @@ Route::post('user/property-view', [AgentDataController::class, 'recordPropertyVi
  * Admin API — protected by X-Admin-Secret header.
  * Called by the Next.js super-admin panel (pixilink-web /admin/*).
  */
-Route::prefix('admin')->middleware([\App\Http\Middleware\VerifyAdminSecret::class, 'throttle:600,1'])->group(function () {
+// No 'throttle:600,1' here: the api middleware group already applies exactly
+// that limit, and an unnamed throttle keys on sha1(domain|ip) with an empty
+// prefix -- so a second identical instance resolved to the SAME cache key and
+// called hit() twice per request, halving the real ceiling to ~300/min. The
+// api-group limit still caps this surface; only the double-count is gone.
+Route::prefix('admin')->middleware([\App\Http\Middleware\VerifyAdminSecret::class])->group(function () {
     Route::post('auth', [AdminInternalController::class, 'auth']);
 
     Route::get('agents', [AdminInternalController::class, 'agentsList']);
