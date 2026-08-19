@@ -205,6 +205,70 @@ class LeadPipeline
      *   2. POST /v1.0/leads/{id}/inquiry — attach property inquiry (location, price, type)
      *   3. POST /v1.0/notes              — attach free-text note (message, form type, source URL)
      */
+    /**
+     * Push a lead to the agent's CRM once its phone has been OTP-verified.
+     *
+     * A lead is already pushed at account creation, BEFORE verification, so this is an
+     * update, not a new contact. Both existing pushes are plain creates with no dedupe, so
+     * re-using them here would hand the agent two records for one person.
+     *
+     * GHL: uses /contacts/upsert (not /contacts/) so the existing contact is matched on
+     * email/phone within the location, and adds a `phone-verified` tag the agent can filter
+     * and automate on.
+     *
+     * Lofty: has no documented upsert on /leads. Rather than risk duplicating a contact in
+     * a live CRM on an assumption, this deliberately does NOT re-push - the verified-lead
+     * email still reaches the agent via AgentLeadVerifiedJob. Wire Lofty in here only after
+     * confirming its dedupe behaviour against a throwaway contact.
+     */
+    public static function pushVerifiedLead(
+        \App\Models\Agent $agent,
+        array $data
+    ): void {
+        try {
+            if (!Schema::hasColumn('agent_settings', 'ghl_enabled')
+                || !Schema::hasColumn('agent_settings', 'ghl_api_key')
+                || !Schema::hasColumn('agent_settings', 'ghl_location_id')) {
+                return;
+            }
+
+            $row = \Illuminate\Support\Facades\DB::table('agent_settings')
+                ->where('agent_id', $agent->id)
+                ->select(['ghl_enabled', 'ghl_api_key', 'ghl_location_id'])
+                ->first();
+
+            if (!$row || !$row->ghl_enabled || !$row->ghl_api_key || !$row->ghl_location_id) return;
+
+            $name  = trim(($data['first_name'] ?? '') . ' ' . ($data['last_name'] ?? ''));
+            if (!$name) $name = $data['name'] ?? '';
+            $parts = explode(' ', trim($name), 2);
+
+            $payload = [
+                'firstName'  => ($parts[0] ?? '') ?: null,
+                'lastName'   => ($parts[1] ?? '') ?: null,
+                'email'      => $data['email'] ?? null,
+                'phone'      => $data['phone'] ?? null,
+                'locationId' => $row->ghl_location_id,
+                'tags'       => array_values(array_filter([
+                    'phone-verified',
+                    'website-lead',
+                    $data['form_type'] ?? null,
+                ])),
+            ];
+
+            $response = Http::withToken($row->ghl_api_key)
+                ->withHeaders(['Version' => '2021-07-28'])
+                ->timeout(8)
+                ->post('https://services.leadconnectorhq.com/contacts/upsert', $payload);
+
+            if (!$response->successful()) {
+                Log::warning('LeadPipeline GHL verified-upsert failed [' . $response->status() . '] agent=' . $agent->slug . ': ' . $response->body());
+            }
+        } catch (\Throwable $e) {
+            Log::error('LeadPipeline GHL verified-upsert error agent=' . $agent->slug . ': ' . $e->getMessage());
+        }
+    }
+
     public static function pushToLofty(
         \App\Models\Agent $agent,
         array $data

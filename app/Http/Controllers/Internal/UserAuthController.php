@@ -700,6 +700,31 @@ class UserAuthController extends Controller
         cache()->forget($lockKey);
 
         $user->update(['phone_verified_at' => now()]);
+
+        // Mark the agent_lead(s) this user created as verified. Uses the Eloquent model,
+        // not a query-builder update, because AgentLead::booted() dispatches
+        // AgentLeadVerifiedJob on the `updated` event - a DB::table() update bypasses it
+        // silently. email_verified_at is set alongside because registerPasswordless marks
+        // the email verified at creation, and the hook requires both.
+        try {
+            if (! empty($user->email)) {
+                $leads = \App\Models\AgentLead::where('email', $user->email)
+                    ->whereNull('phone_verified_at')
+                    ->get();
+                foreach ($leads as $lead) {
+                    $lead->phone_verified_at = now();
+                    if (! $lead->email_verified_at && $user->email_verified_at) {
+                        $lead->email_verified_at = $user->email_verified_at;
+                    }
+                    $lead->save();
+                }
+            }
+        } catch (\Throwable $e) {
+            // Never fail a successful verification because lead bookkeeping broke -
+            // the user has verified, and that must return 200 regardless.
+            \Illuminate\Support\Facades\Log::warning('lead verify-stamp failed: ' . $e->getMessage());
+        }
+
         $fresh = $user->fresh();
 
         return response()->json([

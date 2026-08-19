@@ -32,6 +32,23 @@ class AgentLeadVerifiedJob implements ShouldQueue
         $settings = $agent->settings;
         $formType = $lead->form_type;
 
+        // Push the now-verified lead to the agent's CRM. Upserts rather than creating,
+        // because the lead was already pushed at account creation - before OTP - so a
+        // plain create would give the agent two records for one person. Wrapped so a CRM
+        // outage cannot stop the agent's notification email going out below.
+        try {
+            \App\Services\LeadPipeline::pushVerifiedLead($agent, [
+                'first_name' => $lead->first_name,
+                'last_name'  => $lead->last_name,
+                'name'       => $lead->name,
+                'email'      => $lead->email,
+                'phone'      => $lead->phone,
+                'form_type'  => $formType,
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('verified CRM push failed lead=' . $lead->id . ': ' . $e->getMessage());
+        }
+
         // Rate-limit: one SMS per lead (shared with immediate-send in AgentLeadController)
         $alreadySent = AgentLeadSmsLog::where('agent_lead_id', $lead->id)->exists();
 
@@ -88,15 +105,20 @@ class AgentLeadVerifiedJob implements ShouldQueue
             }
         }
 
-        // ── Email fallback ──────────────────────────────────────────────────
-        // Send a fallback email when:
-        //   (a) SMS was the intended channel but failed to send, AND
-        //   (b) email pref is enabled for this lead type.
-        // This ensures verified-lead confirmation reaches the agent even when
-        // Twilio is unavailable, without double-emailing when email pref is off.
-        $needsEmailFallback = $smsEnabled && !$smsSent;
+        // ── Email ───────────────────────────────────────────────────────────
+        // Send when the email pref is on and no SMS went out for this lead.
+        //
+        // Previously this was `$smsEnabled && !$smsSent` - i.e. email only as a
+        // fallback for a FAILED SMS. Every agent currently has sms=false / email=true,
+        // so that condition was never true and no agent has ever received a
+        // verified-lead email. Email is the reliable channel here (Twilio SMS is
+        // broken platform-wide: config('services.twilio.from') is undefined), so an
+        // agent who has asked for email notifications should get one.
+        //
+        // !$smsSent still prevents double-notifying when SMS did deliver.
+        $needsEmail = $emailEnabled && !$smsSent;
 
-        if ($needsEmailFallback && $emailEnabled) {
+        if ($needsEmail) {
             $notifyEmail = $settings?->getNotifEmailOverride($formType)
                         ?? $settings?->notification_email
                         ?? $agent->email;
