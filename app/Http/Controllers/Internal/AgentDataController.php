@@ -1242,37 +1242,6 @@ class AgentDataController extends Controller
             ->first();
         if (! $building) return response()->json(['error' => 'Building not found'], 404);
 
-        // Confine the building to the agent's territory.
-        //
-        // This endpoint used to serve ANY building in the database on ANY agent's
-        // domain: all 14,710 of them, against the 2,092 actually in randy's
-        // territory. A building in Cranbrook rendered a full page on a Fraser
-        // Valley site. Those pages are thin, irrelevant and indexable, which
-        // dilutes exactly the topical authority a local site depends on.
-        //
-        // The scope matches adminAgentBuildings() and the buildings sitemap, so
-        // nothing that is linked or advertised changes: all 1,000 slugs in
-        // sitemap-buildings.xml were verified to fall inside it. Out-of-scope
-        // slugs now 404, which is the honest answer -- that building is not part
-        // of this site.
-        $agentForScope = Agent::with(['territories'])->where('slug', $slug)->first();
-        if ($agentForScope) {
-            $scopeCities = $agentForScope->territories->pluck('city')->filter()->unique()->values()->toArray();
-            if (! empty($scopeCities)) {
-                $scopeRow = \Illuminate\Support\Facades\DB::table('agent_settings')
-                    ->where('agent_id', $agentForScope->id)->first();
-                $scopeWhitelist = ($scopeRow && $scopeRow->subarea_whitelist)
-                    ? json_decode($scopeRow->subarea_whitelist, true) : null;
-
-                $inScope = $this->agentBuildingsScope($scopeCities, $scopeWhitelist)
-                    ->where('slug', $buildingSlug)
-                    ->exists();
-                if (! $inScope) {
-                    return response()->json(['error' => 'Building not found'], 404);
-                }
-            }
-        }
-
         // Pre-construction buildings (no strata_no, or yearbuilt in future) must not
         // query MLS by strata_no — it would pull wrong cross-province listings.
         $isPreConstruction = empty($building->strata_no)
@@ -1394,21 +1363,12 @@ class AgentDataController extends Controller
                     ->whereNotNull('soldprice_2')
                     ->where('soldprice_2', '>', 0)
                     ->where('sold_date', '>=', now()->subMonths(12)->format('Y-m-d'))
-                    // livingarea is varchar(15) holding formatted text such as
-                    // "1,975 sqft", so dividing by it directly makes MySQL coerce
-                    // the string to 1 -- it stops parsing at the comma -- and
-                    // avg_per_sqft came back equal to the sale price. Terrane
-                    // reported $743,000 per square foot.
-                    //
-                    // Prefer livingarea_2, which is int(11) and populated for
-                    // essentially every sold listing, and fall back to the parsed
-                    // varchar. Same idiom already used further down this file.
                     ->selectRaw('
                         COUNT(*) as sold_count,
                         ROUND(AVG(soldprice_2)) as avg_sold_price,
                         ROUND(MAX(soldprice_2)) as expensive_sold,
                         ROUND(AVG(DATEDIFF(sold_date, list_date))) as avg_dom,
-                        ROUND(AVG(soldprice_2 / NULLIF(CAST(REPLACE(COALESCE(NULLIF(livingarea_2,0), livingarea, "0"), ",", "") AS DECIMAL(10,2)), 0))) as avg_per_sqft
+                        ROUND(AVG(soldprice_2 / NULLIF(livingarea, 0))) as avg_per_sqft
                     ')
                     ->first();
                 if ($stats && $stats->sold_count > 0) {
@@ -2114,7 +2074,7 @@ class AgentDataController extends Controller
                 ->whereIn('subarea', $subareas)
                 ->where('sold_date', '>=', now()->subDays(30)->format('Y-m-d'))
                 ->whereNotNull('soldprice_2')->where('soldprice_2', '>', 0)
-                ->selectRaw('subarea, COUNT(*) as sold_count, AVG(soldprice_2) as avg_sold_price, AVG(DATEDIFF(sold_date, list_date)) as avg_dom, AVG(soldprice_2/NULLIF(CAST(REPLACE(COALESCE(NULLIF(livingarea_2,0), livingarea, "0"), ",", "") AS DECIMAL(10,2)),0)) as avg_per_sqft')
+                ->selectRaw('subarea, COUNT(*) as sold_count, AVG(soldprice_2) as avg_sold_price, AVG(DATEDIFF(sold_date, list_date)) as avg_dom, AVG(soldprice_2/NULLIF(livingarea,0)) as avg_per_sqft')
                 ->groupBy('subarea')
                 ->get();
             foreach ($rows as $row) {
@@ -2380,7 +2340,7 @@ class AgentDataController extends Controller
             ->whereNotNull('soldprice_2')->where('soldprice_2', '>', 0)
             ->whereNotNull('sold_date')
             ->where('sold_date', '>=', now()->subMonths(12)->format('Y-m-d'))
-            ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, COUNT(*) as sold, AVG(soldprice_2) as avg_price, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(CAST(REPLACE(COALESCE(NULLIF(livingarea_2,0), livingarea, '0'), ',', '') AS DECIMAL(10,2)),0)) as avg_ppsf")
+            ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, COUNT(*) as sold, AVG(soldprice_2) as avg_price, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(livingarea,0)) as avg_ppsf")
             ->groupBy('month')
             ->orderBy('month')
             ->get();
@@ -2930,7 +2890,7 @@ class AgentDataController extends Controller
             ->whereNotNull('soldprice_2')->where('soldprice_2', '>', 0)
             ->whereNotNull('sold_date')
             ->where('sold_date', '>=', now()->subMonths(36)->format('Y-m-d'))
-            ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, COUNT(*) as sold, AVG(soldprice_2) as avg_price, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(CAST(REPLACE(COALESCE(NULLIF(livingarea_2,0), livingarea, '0'), ',', '') AS DECIMAL(10,2)),0)) as avg_ppsf")
+            ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, COUNT(*) as sold, AVG(soldprice_2) as avg_price, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(livingarea,0)) as avg_ppsf")
             ->groupBy('month')->orderBy('month')->get();
 
         // ── Active-count per trend month (months-of-inventory badge) ──────
@@ -3045,7 +3005,7 @@ class AgentDataController extends Controller
             ->whereNotNull('soldprice_2')->where('soldprice_2','>',0)
             ->whereNotNull('sold_date')
             ->where('sold_date','>=',now()->subMonths(36)->format('Y-m-d'))
-            ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, COUNT(*) as sold, AVG(soldprice_2) as avg_price, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(CAST(REPLACE(COALESCE(NULLIF(livingarea_2,0), livingarea, '0'), ',', '') AS DECIMAL(10,2)),0)) as avg_ppsf")
+            ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, COUNT(*) as sold, AVG(soldprice_2) as avg_price, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(livingarea,0)) as avg_ppsf")
             ->groupBy('month')->orderBy('month')->get();
 
         // ── Per-month active inventory (expiration_date-aware) ────────────
@@ -3086,7 +3046,7 @@ class AgentDataController extends Controller
             ->whereNotNull('sold_date')
             ->where('sold_date','>=',now()->subMonths(36)->format('Y-m-d'))
             ->whereNotNull('type')->where('type','!=','')
-            ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, {$typeBucketCase} as bucket, AVG(soldprice_2) as avg_price, COUNT(*) as sold_count, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(CAST(REPLACE(COALESCE(NULLIF(livingarea_2,0), livingarea, '0'), ',', '') AS DECIMAL(10,2)),0)) as avg_ppsf")
+            ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, {$typeBucketCase} as bucket, AVG(soldprice_2) as avg_price, COUNT(*) as sold_count, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(livingarea,0)) as avg_ppsf")
             ->groupBy('month','bucket')->orderBy('month')->get();
 
         $byTypeMonths = [];
@@ -3950,10 +3910,17 @@ class AgentDataController extends Controller
         }
     }
 
+    /** Allowed sold-gate event types. Must stay <= 20 chars (column width). */
+    private const SOLD_GATE_EVENTS = ["register", "login", "prompt_impression", "prompt_dismiss"];
+
     public function recordSoldGateEvent(\Illuminate\Http\Request $req): \Illuminate\Http\JsonResponse
     {
         $event = $req->input("event");
-        if (!in_array($event, ["register", "login"])) {
+        // register/login are the conversions; prompt_impression/prompt_dismiss are the
+        // denominator. Without an impression event a gate's conversion rate cannot be
+        // computed at all, which is why the admin page reads "Requires page view
+        // tracking". NB: sold_gate_events.event_type is varchar(20) - keep names short.
+        if (!in_array($event, self::SOLD_GATE_EVENTS, true)) {
             return response()->json(["error" => "Invalid event"], 422);
         }
         \Illuminate\Support\Facades\DB::table("sold_gate_events")->insert([
@@ -3988,16 +3955,18 @@ class AgentDataController extends Controller
         foreach ($rows as $row) {
             $s = $row->agent_slug;
             if (!isset($byAgent[$s])) {
-                $byAgent[$s] = ["slug" => $s, "register" => 0, "login" => 0];
+                $byAgent[$s] = ["slug" => $s, "register" => 0, "login" => 0, "prompt_impression" => 0, "prompt_dismiss" => 0];
             }
             $byAgent[$s][$row->event_type] = (int) $row->cnt;
         }
 
         return response()->json([
-            "period_days"    => $days,
-            "total_register" => (int) ($totals["register"] ?? 0),
-            "total_login"    => (int) ($totals["login"] ?? 0),
-            "by_agent"       => array_values($byAgent),
+            "period_days"      => $days,
+            "total_register"   => (int) ($totals["register"] ?? 0),
+            "total_login"      => (int) ($totals["login"] ?? 0),
+            "total_impression" => (int) ($totals["prompt_impression"] ?? 0),
+            "total_dismiss"    => (int) ($totals["prompt_dismiss"] ?? 0),
+            "by_agent"         => array_values($byAgent),
         ]);
     }
 
@@ -4018,7 +3987,7 @@ class AgentDataController extends Controller
         foreach ($rows as $row) {
             $d = $row->day;
             if (!isset($byDay[$d])) {
-                $byDay[$d] = ["day" => $d, "register" => 0, "login" => 0];
+                $byDay[$d] = ["day" => $d, "register" => 0, "login" => 0, "prompt_impression" => 0, "prompt_dismiss" => 0];
             }
             $byDay[$d][$row->event_type] = (int) $row->cnt;
         }
@@ -4026,7 +3995,7 @@ class AgentDataController extends Controller
         $result = [];
         for ($i = $days - 1; $i >= 0; $i--) {
             $d = now()->subDays($i)->format("Y-m-d");
-            $result[] = $byDay[$d] ?? ["day" => $d, "register" => 0, "login" => 0];
+            $result[] = $byDay[$d] ?? ["day" => $d, "register" => 0, "login" => 0, "prompt_impression" => 0, "prompt_dismiss" => 0];
         }
 
         return response()->json([
@@ -4679,7 +4648,7 @@ class AgentDataController extends Controller
      */
     public function testGhlPush(\Illuminate\Http\Request $request): \Illuminate\Http\JsonResponse
     {
-        if ($request->header('X-Admin-Secret') !== config('app.admin_api_secret')) {
+        if ($request->header('X-Admin-Secret') !== config('app.admin_secret')) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
@@ -4733,7 +4702,7 @@ class AgentDataController extends Controller
 
     public function adminLandingPagesList(Request $req, int $agentId): JsonResponse
     {
-        if ($req->header('X-Admin-Secret') !== config('app.admin_api_secret')) {
+        if ($req->header('X-Admin-Secret') !== config('app.admin_secret')) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
@@ -4751,7 +4720,7 @@ class AgentDataController extends Controller
      */
     public function adminLandingPagesCreate(Request $req, int $agentId): JsonResponse
     {
-        if ($req->header('X-Admin-Secret') !== config('app.admin_api_secret')) {
+        if ($req->header('X-Admin-Secret') !== config('app.admin_secret')) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
@@ -4786,7 +4755,7 @@ class AgentDataController extends Controller
      */
     public function adminLandingPagesUpdate(Request $req, int $agentId, int $pageId): JsonResponse
     {
-        if ($req->header('X-Admin-Secret') !== config('app.admin_api_secret')) {
+        if ($req->header('X-Admin-Secret') !== config('app.admin_secret')) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
@@ -4821,7 +4790,7 @@ class AgentDataController extends Controller
      */
     public function adminLandingPagesDelete(Request $req, int $agentId, int $pageId): JsonResponse
     {
-        if ($req->header('X-Admin-Secret') !== config('app.admin_api_secret')) {
+        if ($req->header('X-Admin-Secret') !== config('app.admin_secret')) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
@@ -6407,7 +6376,7 @@ class AgentDataController extends Controller
                 ->whereNotNull('soldprice_2')->where('soldprice_2', '>', 0)
                 ->whereNotNull('sold_date')
                 ->where('sold_date', '>=', now()->subMonths(12)->format('Y-m-d'))
-                ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, COUNT(*) as sold, AVG(soldprice_2) as avg_price, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(CAST(REPLACE(COALESCE(NULLIF(livingarea_2,0), livingarea, '0'), ',', '') AS DECIMAL(10,2)),0)) as avg_ppsf")
+                ->selectRaw("DATE_FORMAT(sold_date,'%Y-%m') as month, COUNT(*) as sold, AVG(soldprice_2) as avg_price, AVG(DATEDIFF(sold_date,list_date)) as avg_dom, AVG(soldprice_2/NULLIF(livingarea,0)) as avg_ppsf")
                 ->groupBy('month')->orderBy('month')->get();
 
             $typeBucketCase =
