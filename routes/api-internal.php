@@ -166,6 +166,18 @@ Route::prefix('auth')->group(function () {
 
 
 /**
+ * Listing alerts — Bearer-token auth. The Next.js bell on every active listing has
+ * been posting to these paths since it shipped, but the routes did not exist, so
+ * every request 404'd and the user's intent reached nobody. Recorded as a lead;
+ * the agent runs the actual alerts in their own CRM.
+ */
+Route::prefix('agent/{slug}/listing-alerts')->group(function () {
+    Route::post('/',      [AgentDataController::class, 'addListingAlert']);
+    Route::get('{mls}',   [AgentDataController::class, 'getListingAlert']);
+    Route::delete('{mls}',[AgentDataController::class, 'removeListingAlert']);
+});
+
+/**
  * Favourites — Bearer-token auth, consumed by Next.js pixilink-web.
  */
 Route::prefix('favourites')->group(function () {

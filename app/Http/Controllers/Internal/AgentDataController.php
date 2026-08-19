@@ -1830,6 +1830,11 @@ class AgentDataController extends Controller
             'listing_address'  => 'nullable|string|max:300',
             'property_address' => 'nullable|string|max:300',
             'form_type'        => 'nullable|string|max:40',
+            // The building / neighbourhood / school the offer was scoped to.
+            // LeadOfferCapture has always sent this; it was absent from this validator,
+            // so Laravel stripped it and every agent received "someone wants weekly
+            // deals" with no area attached. The intent is the point of the lead.
+            'offer_context'    => 'nullable|string|max:150',
             'source_url'       => 'nullable|string|max:500',
             'notes'            => 'nullable|string|max:5000',
             'agree'            => 'nullable|boolean',
@@ -1873,6 +1878,13 @@ class AgentDataController extends Controller
         if ($propertyAddress) {
             $leadMessage = ($leadMessage ? $leadMessage . "\n" : '') . 'Property: ' . $propertyAddress;
         }
+        // Fold the offer context into message rather than adding a column: every CRM
+        // mapping already forwards message, so the intent reaches FUB/GHL/Lofty and the
+        // agent email with no downstream change.
+        $offerContext = $data['offer_context'] ?? null;
+        if ($offerContext) {
+            $leadMessage = ($leadMessage ? $leadMessage . "\n" : '') . 'Interested in: ' . $offerContext;
+        }
 
         \Illuminate\Support\Facades\DB::table('agent_leads')->insert([
             'agent_id'   => $agent->id,
@@ -1882,8 +1894,9 @@ class AgentDataController extends Controller
             'last_name'  => $lastName,
             'email'      => $data['email'] ?? null,
             'phone'      => $data['phone'] ?? null,
-            'message'    => $leadMessage,
-            'source_url' => $data['source_url'] ?? null,
+            'message'       => $leadMessage,
+            'offer_context' => $offerContext,
+            'source_url'    => $data['source_url'] ?? null,
             'ip_hash'    => hash('sha256', $req->ip() ?? ''),
             'created_at' => now(),
             'updated_at' => now(),
@@ -1955,7 +1968,7 @@ class AgentDataController extends Controller
             . "Phone:    " . ($data['phone'] ?? "\xe2\x80\x94") . "\n"
             . "Email:    " . ($data['email'] ?? "\xe2\x80\x94") . "\n"
             . "Property: " . ($propertyAddress ?? "\xe2\x80\x94") . "\n"
-            . "Message:  " . ($data['message'] ?? "\xe2\x80\x94") . "\n"
+            . "Message:  " . ($leadMessage ?? "\xe2\x80\x94") . "\n"
             . "Source:   {$ctxSrcLabel}\n"
             . $notesBlock
             . str_repeat('-', 44) . "\n"
@@ -2014,7 +2027,7 @@ class AgentDataController extends Controller
             'email'            => $data['email']   ?? null,
             'phone'            => $data['phone']   ?? null,
             'form_type'        => $data['form_type'] ?? 'contact',
-            'message'          => $data['message'] ?? null,
+            'message'          => $leadMessage ?? null,
             'property_address' => $propertyAddress ?? null,
             'source_url'       => $data['source_url'] ?? null,
         ];
@@ -3667,6 +3680,104 @@ class AgentDataController extends Controller
             })
             ->first();
         return $row;
+    }
+
+    /**
+     * Listing alerts. The frontend has always had a "Get price alerts" bell on every active
+     * listing (ListingAlertButton.client.tsx) posting to these routes — but the routes did
+     * not exist, so every call 404'd and the user's intent to watch that listing reached
+     * nobody.
+     *
+     * The platform does not send alerts; the agent does that in their own CRM. So the honest
+     * implementation is to record the INTENT as a lead, with the MLS attached, and let the
+     * normal lead pipeline deliver it. Stored as an agent_lead rather than a new table so the
+     * agent sees it alongside every other lead with no extra UI.
+     */
+    private function listingAlertLeadQuery(int $userId, string $agentId, string $mls)
+    {
+        return \Illuminate\Support\Facades\DB::table('agent_leads')
+            ->where('agent_id', $agentId)
+            ->where('form_type', 'listing_alert')
+            ->where('user_id', $userId)
+            ->where('listing_slug', $mls);
+    }
+
+    public function getListingAlert(\Illuminate\Http\Request $request, string $slug, string $mls): \Illuminate\Http\JsonResponse
+    {
+        $token = $this->getUserFromRequest($request);
+        if (! $token) return response()->json(['subscribed' => false]);
+        $agent = \App\Models\Agent::where('slug', $slug)->first();
+        if (! $agent) return response()->json(['subscribed' => false]);
+
+        return response()->json([
+            'subscribed' => $this->listingAlertLeadQuery($token->user_id, $agent->id, $mls)->exists(),
+        ]);
+    }
+
+    public function addListingAlert(\Illuminate\Http\Request $request, string $slug): \Illuminate\Http\JsonResponse
+    {
+        $token = $this->getUserFromRequest($request);
+        if (! $token) return response()->json(['error' => 'Unauthorized.'], 401);
+
+        $data = $request->validate([
+            'mls_num' => 'required|string|max:40',
+            'address' => 'nullable|string|max:300',
+        ]);
+
+        $agent = \App\Models\Agent::where('slug', $slug)->first();
+        if (! $agent) return response()->json(['error' => 'Agent not found.'], 404);
+
+        $u = \Illuminate\Support\Facades\DB::table('users')->where('id', $token->user_id)->first();
+        if (! $u) return response()->json(['error' => 'Unauthorized.'], 401);
+
+        // Idempotent: the bell can be toggled, and one lead per listing is the useful signal.
+        if ($this->listingAlertLeadQuery($token->user_id, $agent->id, $data['mls_num'])->exists()) {
+            return response()->json(['subscribed' => true]);
+        }
+
+        $message = 'Wants price alerts for MLS ' . $data['mls_num']
+            . (! empty($data['address']) ? ' — ' . $data['address'] : '');
+
+        \Illuminate\Support\Facades\DB::table('agent_leads')->insert([
+            'agent_id'    => $agent->id,
+            'form_type'   => 'listing_alert',
+            'name'        => trim(($u->first_name ?? '') . ' ' . ($u->last_name ?? '')),
+            'first_name'  => $u->first_name ?? null,
+            'last_name'   => $u->last_name ?? null,
+            'email'       => $u->email ?? null,
+            'phone'       => $u->phone ?? null,
+            'message'     => $message,
+            'listing_slug' => $data['mls_num'],
+            'user_id'      => $token->user_id,
+            'ip_hash'     => hash('sha256', $request->ip() ?? ''),
+            'created_at'  => now(),
+            'updated_at'  => now(),
+        ]);
+
+        $pipelineData = [
+            'first_name' => $u->first_name ?? null,
+            'last_name'  => $u->last_name ?? null,
+            'email'      => $u->email ?? null,
+            'phone'      => $u->phone ?? null,
+            'message'    => $message,
+            'form_type'  => 'listing_alert',
+        ];
+        \App\Services\LeadPipeline::pushToFollowUpBoss($agent, $pipelineData);
+        \App\Services\LeadPipeline::pushToGoHighLevel($agent, $pipelineData);
+        \App\Services\LeadPipeline::pushToLofty($agent, $pipelineData);
+
+        return response()->json(['subscribed' => true]);
+    }
+
+    public function removeListingAlert(\Illuminate\Http\Request $request, string $slug, string $mls): \Illuminate\Http\JsonResponse
+    {
+        $token = $this->getUserFromRequest($request);
+        if (! $token) return response()->json(['error' => 'Unauthorized.'], 401);
+        $agent = \App\Models\Agent::where('slug', $slug)->first();
+        if (! $agent) return response()->json(['error' => 'Agent not found.'], 404);
+
+        $this->listingAlertLeadQuery($token->user_id, $agent->id, $mls)->delete();
+        return response()->json(['subscribed' => false]);
     }
 
     public function getFavourites(\Illuminate\Http\Request $request): \Illuminate\Http\JsonResponse
