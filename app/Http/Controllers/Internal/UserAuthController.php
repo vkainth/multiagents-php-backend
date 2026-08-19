@@ -592,6 +592,21 @@ class UserAuthController extends Controller
 
         $e164 = ($user->phone_country_code ?? '+1') . $user->phone;
 
+        // Per-user send cap. The route throttle is 10/min PER IP and the 60s resend
+        // countdown is client-side only, so a held session could bill Twilio for an
+        // unbounded number of SMS. The verify side already has a lockout; the send side
+        // had none. Keyed on the user so one abusive session cannot spend on behalf of
+        // everyone behind a shared NAT, and on the number so changing phones does not
+        // reset the budget.
+        $sendKey = 'otp_sends:' . $user->id . ':' . $e164;
+        $sends   = (int) cache()->get($sendKey, 0);
+        if ($sends >= self::OTP_MAX_SENDS) {
+            return response()->json([
+                'error'  => 'Too many codes requested. Please try again later or contact support.',
+                'locked' => true,
+            ], 429);
+        }
+
         try {
             $sid    = config('services.twilio.sid');
             $token  = config('services.twilio.token');
@@ -604,6 +619,10 @@ class UserAuthController extends Controller
             $client = new \Twilio\Rest\Client($sid, $token);
             $client->verify->v2->services($vsid)->verifications->create($e164, 'sms');
 
+            // Count only sends Twilio actually accepted - a failed send costs nothing,
+            // so it should not consume the user's budget.
+            cache()->put($sendKey, $sends + 1, now()->addMinutes(self::OTP_SEND_WINDOW_MINUTES));
+
             return response()->json(['ok' => true]);
         } catch (\Exception $e) {
             logger()->warning('Twilio OTP send failed: ' . $e->getMessage());
@@ -611,6 +630,8 @@ class UserAuthController extends Controller
         }
     }
 
+    private const OTP_MAX_SENDS = 5;
+    private const OTP_SEND_WINDOW_MINUTES = 60;
     private const OTP_MAX_ATTEMPTS = 5;
     private const OTP_LOCKOUT_MINUTES = 10;
 
