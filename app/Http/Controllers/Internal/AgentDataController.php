@@ -146,6 +146,11 @@ class AgentDataController extends Controller
         $sort     = $req->query('sort', 'newest');
         $daysBack = (int) $req->query('days_back', 0);
         $priceReduced = (int) $req->query('price_reduced', 0);
+        // Free-text search over address and MLS number. The showcase search page has
+        // always shipped a keyword box, but there was no server-side param for it, so it
+        // filtered only the 40 rows already on screen out of 50k+ — searching an MLS
+        // number returned "No homes match" for a listing that plainly exists.
+        $keyword  = trim((string) $req->query('keyword', ''));
         $page     = max(1, (int) $req->query('page', 1));
         $limit    = min(250, max(1, (int) $req->query('limit', 24)));
 
@@ -173,6 +178,17 @@ class AgentDataController extends Controller
         }
 
         if ($city)     $q->where('city', $city);
+        if ($keyword !== '') {
+            // Escape LIKE wildcards so a user typing % or _ searches literally rather
+            // than matching everything.
+            $kw = '%' . addcslashes($keyword, '%_\\\\') . '%';
+            $q->where(function ($w) use ($kw) {
+                $w->where('streetaddress', 'like', $kw)
+                  ->orWhere('listingid', 'like', $kw)
+                  ->orWhere('city', 'like', $kw)
+                  ->orWhere('subarea', 'like', $kw);
+            });
+        }
         if ($subarea)  $q->where('subarea', $subarea);
         if ($type)     $q->where('type', $type);
         if ($minPrice) $q->where($priceCol, '>=', $minPrice);
