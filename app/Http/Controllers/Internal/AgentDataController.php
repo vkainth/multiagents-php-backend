@@ -1782,7 +1782,9 @@ class AgentDataController extends Controller
 
         $rows = AgentTestimonial::where('agent_id', $agent->id)
             ->where('visible', true)
-            ->orderByDesc('date')
+            // Dated reviews first, newest first; undated ones keep insertion order after them.
+            // Without the id tiebreak a set of all-null dates has no defined order at all.
+            ->orderByRaw('`date` IS NULL, `date` DESC, id ASC')
             ->limit(8)
             ->get();
 
@@ -6254,7 +6256,7 @@ class AgentDataController extends Controller
         $v = Validator::make($req->all(), [
             'author_name' => 'required|string|max:255',
             'body'        => 'required|string|max:5000',
-            'rating'      => 'nullable|integer|min:1|max:5',
+            'rating'      => 'nullable|integer|min:0|max:5',
             'source'      => 'nullable|string|max:50',
             'external_id' => 'nullable|string|max:255',
             'date'        => 'nullable|date',
@@ -6268,7 +6270,7 @@ class AgentDataController extends Controller
             'source'      => $data['source'] ?? 'manual',
             'external_id' => $data['external_id'] ?? null,
             'author_name' => $data['author_name'],
-            'rating'      => $data['rating'] ?? 5,
+            'rating'      => $data['rating'] ?? 0,
             'body'        => $data['body'],
             'date'        => $data['date'] ?? null,
             'visible'     => array_key_exists('visible', $data) ? (bool) $data['visible'] : true,
@@ -6294,7 +6296,7 @@ class AgentDataController extends Controller
         $v = Validator::make($req->all(), [
             'author_name' => 'sometimes|required|string|max:255',
             'body'        => 'sometimes|required|string|max:5000',
-            'rating'      => 'sometimes|nullable|integer|min:1|max:5',
+            'rating'      => 'sometimes|nullable|integer|min:0|max:5',
             'source'      => 'sometimes|nullable|string|max:50',
             'external_id' => 'sometimes|nullable|string|max:255',
             'date'        => 'sometimes|nullable|date',
@@ -6310,7 +6312,10 @@ class AgentDataController extends Controller
         if (array_key_exists('visible', $data)) $update['visible'] = (bool) $data['visible'];
         // rating and source are NOT NULL in the schema; a cleared field falls back to the
         // column default rather than writing null and failing the insert.
-        if (array_key_exists('rating', $update) && $update['rating'] === null) $update['rating'] = 5;
+        // A cleared rating means "no stars", not an invented 5: these are prose
+        // testimonials and the client never gave a score. 0 is what TestimonialsCards
+        // treats as "render no stars".
+        if (array_key_exists('rating', $update) && $update['rating'] === null) $update['rating'] = 0;
         if (array_key_exists('source', $update) && $update['source'] === null) $update['source'] = 'manual';
 
         DB::table('agent_testimonials')->where('id', $testimonialId)->update($update);
