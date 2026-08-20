@@ -216,10 +216,10 @@ class LeadPipeline
      * email/phone within the location, and adds a `phone-verified` tag the agent can filter
      * and automate on.
      *
-     * Lofty: has no documented upsert on /leads. Rather than risk duplicating a contact in
-     * a live CRM on an assumption, this deliberately does NOT re-push - the verified-lead
-     * email still reaches the agent via AgentLeadVerifiedJob. Wire Lofty in here only after
-     * confirming its dedupe behaviour against a throwaway contact.
+     * Lofty: /leads has no documented upsert, but it does dedupe. Measured against a
+     * throwaway contact on the live account: posting the same person twice returned the
+     * same leadId (1148647091080046) both times, so a repeat push updates one contact
+     * rather than creating a second. Safe to re-push on verification.
      */
     public static function pushVerifiedLead(
         \App\Models\Agent $agent,
@@ -266,6 +266,17 @@ class LeadPipeline
             }
         } catch (\Throwable $e) {
             Log::error('LeadPipeline GHL verified-upsert error agent=' . $agent->slug . ': ' . $e->getMessage());
+        }
+
+        // Lofty: re-push the same person. Verified above to dedupe on the live account.
+        // Reuses pushToLofty rather than duplicating its payload-building and its
+        // plaintext/encrypted key handling; the source label marks it as the verified pass.
+        try {
+            self::pushToLofty($agent, array_merge($data, [
+                'message' => trim(($data['message'] ?? '') . "\nPhone verified by OTP."),
+            ]));
+        } catch (\Throwable $e) {
+            Log::error('LeadPipeline Lofty verified-push error agent=' . $agent->slug . ': ' . $e->getMessage());
         }
     }
 
