@@ -4022,7 +4022,26 @@ class AgentDataController extends Controller
     }
 
     /** Allowed sold-gate event types. Must stay <= 20 chars (column width). */
-    private const SOLD_GATE_EVENTS = ["register", "login", "prompt_impression", "prompt_dismiss"];
+    /**
+     * Allowed funnel event types. Must stay <= 20 chars (sold_gate_events.event_type
+     * is varchar(20)).
+     *
+     * The table is named for the sold gate but the shape is generic
+     * (event_type / agent_slug / mls / subarea / created_at), so it also carries the
+     * form-engagement events behind the daily funnel report. Reused rather than adding
+     * a table: same columns, same endpoint, same admin aggregation.
+     *
+     *   register / login          - converted at the gate
+     *   prompt_impression/dismiss - saw the gate prompt (the denominator)
+     *   form_start                - began typing into a lead or registration form
+     *   form_abandon              - left with something typed and nothing submitted
+     *   otp_failed                - wrong verification code
+     *   phone_invalid             - Twilio rejected the number outright
+     */
+    private const SOLD_GATE_EVENTS = [
+        "register", "login", "prompt_impression", "prompt_dismiss",
+        "form_start", "form_abandon", "otp_failed", "phone_invalid",
+    ];
 
     public function recordSoldGateEvent(\Illuminate\Http\Request $req): \Illuminate\Http\JsonResponse
     {
