@@ -55,7 +55,7 @@
 
     <tr><td class="header">
       <div class="h-title">Site funnel</div>
-      <div class="h-sub">{{ $dayLabel }} &middot; southsurreywhiterock.com &amp; suburbia.ca</div>
+      <div class="h-sub">{{ $siteLabel }} &middot; {{ $dayLabel }}</div>
     </td></tr>
 
     {{-- Headline: the number that says people are turning up. --}}
@@ -102,7 +102,6 @@
     <tr><td class="notes">
       <div class="notes-h">How to read this</div>
       &bull; <b>Showed interest</b> = started filling a form, or was shown a sign-in prompt. Anonymous &mdash; no field values are recorded.<br>
-      &bull; Sign-ups exclude bccondosandhomes.com (legacy) accounts.<br>
       &bull; Abandons are detected when the page is hidden, so a force-quit browser may not report one. Treat abandons as a floor, not an exact figure.<br>
       &bull; Days run midnight to midnight Pacific.
     </td></tr>

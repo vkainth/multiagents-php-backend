@@ -628,7 +628,7 @@ class UserAuthController extends Controller
             logger()->warning('Twilio OTP send failed: ' . $e->getMessage());
             // Twilio would not accept the number at all - a mistyped or unreachable
             // phone, distinct from a wrong code.
-            $this->logFunnelEvent('phone_invalid');
+            $this->logFunnelEvent('phone_invalid', $this->agentSlugForUser($user));
             return response()->json(['error' => 'Failed to send verification code. Please try again.'], 503);
         }
     }
@@ -637,6 +637,17 @@ class UserAuthController extends Controller
      * Record a funnel event. Deliberately fire-and-forget: this is reporting, and must
      * never turn a working (or already-failing) auth response into a 500.
      */
+    /** Slug of the site a user belongs to, for attributing funnel events. */
+    private function agentSlugForUser($user): ?string
+    {
+        try {
+            if (empty($user->agent_id)) return null;
+            return \Illuminate\Support\Facades\DB::table('agents')->where('id', $user->agent_id)->value('slug');
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
     private function logFunnelEvent(string $event, ?string $agentSlug = null): void
     {
         try {
@@ -727,7 +738,7 @@ class UserAuthController extends Controller
 
             // Wrong or expired code - the clearest signal a real person tried and the
             // number or code did not work.
-            $this->logFunnelEvent('otp_failed');
+            $this->logFunnelEvent('otp_failed', $this->agentSlugForUser($user));
 
             $message = $twilioErr
                 ? 'Incorrect or expired code.'

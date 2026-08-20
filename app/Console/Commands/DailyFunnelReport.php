@@ -7,42 +7,40 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 
 /**
- * Daily funnel report.
+ * Daily per-site funnel report.
  *
- * Built to answer "are we getting people?" - which is not the same question as "are we
- * getting leads". Someone who starts a form and leaves, or mistypes their number, is
- * evidence of real interest and was previously invisible.
+ * Answers "are we getting people?", which is not the same question as "are we getting
+ * leads". Someone who starts a form and leaves, or mistypes their number, is evidence of
+ * real interest and was previously invisible.
  *
- * Counts, for the previous full day:
- *   - people who started a form and never submitted it
- *   - people whose phone/code failed verification
- *   - people who did sign up, and how many verified
+ * One email per site, to that site's owner, containing only their own numbers — an agent
+ * must never see another agent's traffic.
  *
- * Deliberately reports both a daily figure and a 7-day total: at ~20 sign-ups a month a
- * single day is mostly noise, and a report that reads "0" every day gets ignored.
+ * Reports a daily figure beside a 7-day total: at this volume a single day is mostly noise,
+ * and a report that reads 0 every morning gets filtered to trash.
  */
 class DailyFunnelReport extends Command
 {
     protected $signature = 'report:daily-funnel
                             {--date= : Report on this Y-m-d instead of yesterday}
+                            {--agent= : Only this agent slug}
                             {--to= : Override recipient(s), comma-separated}
-                            {--dry-run : Print the report instead of emailing it}';
+                            {--dry-run : Print instead of emailing}';
 
-    protected $description = 'Email a daily site funnel report (form starts, abandons, failed verifications, sign-ups)';
+    protected $description = 'Email each site owner a daily funnel report for their own site';
 
-    /** Report days are local days. The reader is in BC; the app clock is UTC. */
+    /** Report days are local days. Readers are in BC; the app clock is UTC. */
     private const REPORT_TZ = 'America/Vancouver';
 
     public function handle(): int
     {
-        // Timestamps are stored in UTC (config('app.timezone') is UTC, and Laravel's
-        // now() is what writes them) - but MySQL's own NOW() on this box returns
-        // Pacific, 7 hours behind. So boundaries must be built explicitly rather than
-        // trusted from either side.
+        // Timestamps are stored in UTC (config('app.timezone') is UTC, and Laravel's now()
+        // is what writes them) — but MySQL's own NOW() on this box returns Pacific, 7 hours
+        // behind. So boundaries are built explicitly rather than trusted from either side.
         //
-        // A "day" is anchored to Pacific, not UTC: a UTC day would run 5pm-5pm local
-        // and the totals would never match what the reader saw happen that day.
-        $tz = self::REPORT_TZ;
+        // A "day" is anchored to Pacific: a UTC day would run 5pm–5pm local and the totals
+        // would never match what the reader saw happen that day.
+        $tz  = self::REPORT_TZ;
         $day = $this->option('date')
             ? \Carbon\Carbon::parse($this->option('date'), $tz)
             : \Carbon\Carbon::now($tz)->subDay();
@@ -51,132 +49,164 @@ class DailyFunnelReport extends Command
         $end   = $day->copy()->endOfDay()->utc();
         $week  = \Carbon\Carbon::now($tz)->subDays(7)->startOfDay()->utc();
 
-        $ev = function ($type, $from, $to = null) {
-            $q = DB::table('sold_gate_events')->where('event_type', $type)->where('created_at', '>=', $from);
+        $agents = \App\Models\Agent::query()
+            ->when($this->option('agent'), fn ($q) => $q->where('slug', $this->option('agent')))
+            ->orderBy('id')
+            ->get();
+
+        if ($agents->isEmpty()) {
+            $this->error('No matching agents.');
+            return self::FAILURE;
+        }
+
+        $sent = 0;
+        foreach ($agents as $agent) {
+            $data = $this->collect($agent, $start, $end, $week, $day);
+
+            if ($this->option('dry-run')) {
+                $this->line($data['text']);
+                continue;
+            }
+
+            // Skip a site with nothing at all rather than mailing its owner a page of zeros
+            // every morning. The 7-day check means a quiet single day still reports.
+            if ($data['engaged'] === 0 && $data['captured'] === 0 && $data['engaged7'] === 0) {
+                $this->line("  {$agent->slug}: nothing to report, skipped");
+                continue;
+            }
+
+            $to = $this->option('to')
+                ? array_map('trim', explode(',', $this->option('to')))
+                : array_values(array_filter([$agent->settings?->notification_email ?: $agent->email]));
+
+            if (empty($to)) {
+                $this->warn("  {$agent->slug}: no recipient on file, skipped");
+                continue;
+            }
+
+            try {
+                Mail::send(['html' => 'emails.funnel_report'], $data, function ($m) use ($to, $day, $data) {
+                    $m->to($to)->subject($data['siteLabel'] . ' — site funnel, ' . $day->format('D j M'));
+                    // text/plain alternative: readable in stripped-down clients, and less
+                    // likely to be graded as bulk mail.
+                    $m->getSymfonyMessage()->text($data['text']);
+                });
+                $this->info("  {$agent->slug}: sent to " . implode(', ', $to));
+                $sent++;
+            } catch (\Throwable $e) {
+                // One bad recipient must not abort the rest of the run.
+                $this->error("  {$agent->slug}: send failed — " . $e->getMessage());
+            }
+        }
+
+        if (! $this->option('dry-run')) {
+            $this->info("Done — {$sent} report(s) sent.");
+        }
+
+        return self::SUCCESS;
+    }
+
+    /** Gather one site's numbers. Every query here is scoped to this agent. */
+    private function collect($agent, $start, $end, $week, $day): array
+    {
+        $slug = $agent->slug;
+
+        $ev = function ($type, $from, $to = null) use ($slug) {
+            $q = DB::table('sold_gate_events')
+                ->where('event_type', $type)
+                ->where('agent_slug', $slug)          // scoped — never another site's traffic
+                ->where('created_at', '>=', $from);
             if ($to) $q->where('created_at', '<=', $to);
             return (int) $q->count();
         };
 
-        // Form engagement
-        $starts     = $ev('form_start',   $start, $end);
-        $abandons   = $ev('form_abandon', $start, $end);
-        $otpFailed  = $ev('otp_failed',   $start, $end);
-        $badPhone   = $ev('phone_invalid', $start, $end);
-
-        // Gate prompts
+        $starts      = $ev('form_start', $start, $end);
+        $starts7     = $ev('form_start', $week);
+        $abandons    = $ev('form_abandon', $start, $end);
+        $abandons7   = $ev('form_abandon', $week);
+        $otpFailed   = $ev('otp_failed', $start, $end);
+        $otp7        = $ev('otp_failed', $week);
+        $badPhone    = $ev('phone_invalid', $start, $end);
+        $badPhone7   = $ev('phone_invalid', $week);
         $impressions = $ev('prompt_impression', $start, $end);
-        $gateRegister = $ev('register', $start, $end);
-        $gateLogin    = $ev('login', $start, $end);
+        $impr7       = $ev('prompt_impression', $week);
+        $gateReg     = $ev('register', $start, $end);
+        $gateReg7    = $ev('register', $week);
+        $gateLogin   = $ev('login', $start, $end);
+        $gateLogin7  = $ev('login', $week);
 
-        // Leads actually captured
-        $leads = (int) DB::table('agent_leads')
-            ->whereBetween('created_at', [$start, $end])->count();
+        $leadQ  = fn () => DB::table('agent_leads')->where('agent_id', $agent->id);
+        $leads  = (int) $leadQ()->whereBetween('created_at', [$start, $end])->count();
+        $leads7 = (int) $leadQ()->where('created_at', '>=', $week)->count();
 
-        // Sign-ups. Only the new flow: legacy Firebase rows (uid set) belong to
-        // bccondosandhomes.com, a different site, and would swamp these numbers.
-        $signupQ = DB::table('users')
+        // Sign-ups for this site only. Legacy Firebase rows (uid set) belong to
+        // bccondosandhomes.com — a different site — and would swamp these numbers.
+        $userQ = fn () => DB::table('users')
+            ->where('agent_id', $agent->id)
             ->where(function ($q) { $q->whereNull('uid')->orWhere('uid', ''); });
-        $signups  = (int) (clone $signupQ)->whereBetween('created_at', [$start, $end])->count();
-        $verified = (int) (clone $signupQ)->whereBetween('created_at', [$start, $end])
-            ->whereNotNull('phone_verified_at')->count();
+        $signups   = (int) $userQ()->whereBetween('created_at', [$start, $end])->count();
+        $signups7  = (int) $userQ()->where('created_at', '>=', $week)->count();
+        $verified  = (int) $userQ()->whereBetween('created_at', [$start, $end])->whereNotNull('phone_verified_at')->count();
+        $verified7 = (int) $userQ()->where('created_at', '>=', $week)->whereNotNull('phone_verified_at')->count();
 
-        // 7-day context
-        $starts7   = $ev('form_start', $week);
-        $abandons7 = $ev('form_abandon', $week);
-        $otp7      = $ev('otp_failed', $week);
-        $leads7    = (int) DB::table('agent_leads')->where('created_at', '>=', $week)->count();
-        $signups7  = (int) (clone $signupQ)->where('created_at', '>=', $week)->count();
-        $verified7 = (int) (clone $signupQ)->where('created_at', '>=', $week)
-            ->whereNotNull('phone_verified_at')->count();
-
-        // Anyone who showed intent, whether or not we got their details. This is the
-        // headline: it is the number that says people are turning up.
         $engaged  = $starts + $impressions;
-        $engaged7 = $starts7 + $ev('prompt_impression', $week);
+        $engaged7 = $starts7 + $impr7;
+        $captured = $leads + $signups;
+        $rate     = $engaged > 0 ? round(($captured / $engaged) * 100, 1) : 0;
 
-        // Structured once, rendered twice: the Blade view for the email, the same numbers
-        // as plain text for --dry-run and as the text/plain alternative part.
         $groups = [
             ['title' => 'Showing interest', 'class' => 's-interest', 'rows' => [
-                ['label' => 'Started filling a form',        'day' => $starts,      'week' => $starts7],
-                ['label' => 'Shown a sign-in prompt',        'day' => $impressions, 'week' => $ev('prompt_impression', $week)],
+                ['label' => 'Started filling a form', 'day' => $starts,      'week' => $starts7],
+                ['label' => 'Shown a sign-in prompt', 'day' => $impressions, 'week' => $impr7],
             ]],
             ['title' => 'Dropped out', 'class' => 's-dropped', 'rows' => [
                 ['label' => 'Started a form, did not submit', 'day' => $abandons,  'week' => $abandons7],
                 ['label' => 'Wrong or expired code',          'day' => $otpFailed, 'week' => $otp7],
-                ['label' => 'Phone number rejected',          'day' => $badPhone,  'week' => $ev('phone_invalid', $week)],
+                ['label' => 'Phone number rejected',          'day' => $badPhone,  'week' => $badPhone7],
             ]],
             ['title' => 'Converted', 'class' => 's-convert', 'rows' => [
-                ['label' => 'Leads captured',             'day' => $leads,        'week' => $leads7],
-                ['label' => 'Signed up',                  'day' => $signups,      'week' => $signups7],
-                ['label' => 'Signed up + phone verified', 'day' => $verified,     'week' => $verified7],
-                ['label' => 'Clicked register at gate',   'day' => $gateRegister, 'week' => $ev('register', $week)],
-                ['label' => 'Clicked sign-in at gate',    'day' => $gateLogin,    'week' => $ev('login', $week)],
+                ['label' => 'Leads captured',             'day' => $leads,     'week' => $leads7],
+                ['label' => 'Signed up',                  'day' => $signups,   'week' => $signups7],
+                ['label' => 'Signed up + phone verified', 'day' => $verified,  'week' => $verified7],
+                ['label' => 'Clicked register at gate',   'day' => $gateReg,   'week' => $gateReg7],
+                ['label' => 'Clicked sign-in at gate',    'day' => $gateLogin, 'week' => $gateLogin7],
             ]],
         ];
 
-        $captured = $leads + $signups;
-        $rate     = $engaged > 0 ? round(($captured / $engaged) * 100, 1) : 0;
+        $siteLabel = $agent->name ?: $slug;
 
-        $viewData = [
-            'dayLabel'  => $day->format('l j F Y'),
-            'dayShort'  => $day->format('D j M'),
-            'engaged'   => $engaged,
-            'engaged7'  => $engaged7,
-            'groups'    => $groups,
-            'captured'  => $captured,
-            'rate'      => $rate,
-        ];
-
-        // Plain-text twin.
-        $body  = "Site funnel — {$day->format('D j M Y')}\n";
-        $body .= str_repeat('=', 54) . "\n\n";
-        $body .= "  {$engaged} people showed interest on this day ({$engaged7} over 7 days)\n\n";
-        $body .= sprintf("  %-34s %6s   %6s\n", '', $day->format('D j'), '7 days');
+        // Plain-text twin, built from the same numbers so the two can never disagree.
+        $text  = "{$siteLabel} — site funnel — {$day->format('D j M Y')}\n";
+        $text .= str_repeat('=', 56) . "\n\n";
+        $text .= "  {$engaged} people showed interest on this day ({$engaged7} over 7 days)\n\n";
+        $text .= sprintf("  %-34s %6s   %6s\n", '', $day->format('D j'), '7 days');
         foreach ($groups as $g) {
-            $body .= "\n" . strtoupper($g['title']) . "\n";
+            $text .= "\n" . strtoupper($g['title']) . "\n";
             foreach ($g['rows'] as $r) {
-                $body .= sprintf("  %-34s %6s   %6s\n", $r['label'], $r['day'], $r['week']);
+                $text .= sprintf("  %-34s %6s   %6s\n", $r['label'], $r['day'], $r['week']);
             }
         }
-        $body .= "\n" . str_repeat('-', 54) . "\n";
-        $body .= $engaged > 0
+        $text .= "\n" . str_repeat('-', 56) . "\n";
+        $text .= $engaged > 0
             ? "  Of {$engaged} people who engaged, {$captured} gave us their details ({$rate}%).\n"
             : "  No tracked engagement on this day.\n";
-        $body .= "\nNotes:\n";
-        $body .= "  - \"Showed interest\" = started a form or was shown a sign-in prompt.\n";
-        $body .= "    Anonymous - no field values are recorded.\n";
-        $body .= "  - Sign-ups exclude bccondosandhomes.com (legacy) accounts.\n";
-        $body .= "  - Abandons are detected on page-hide, so a force-quit browser may not\n";
-        $body .= "    report one. Treat abandons as a floor, not an exact figure.\n";
-        $body .= "  - Days run midnight to midnight Pacific.\n";
+        $text .= "\nNotes:\n";
+        $text .= "  - \"Showed interest\" = started a form or was shown a sign-in prompt.\n";
+        $text .= "    Anonymous - no field values are recorded.\n";
+        $text .= "  - Abandons are detected on page-hide, so a force-quit browser may not\n";
+        $text .= "    report one. Treat abandons as a floor, not an exact figure.\n";
+        $text .= "  - Days run midnight to midnight Pacific.\n";
 
-        if ($this->option('dry-run')) {
-            $this->line($body);
-            return self::SUCCESS;
-        }
-
-        $to = $this->option('to')
-            ? array_map('trim', explode(',', $this->option('to')))
-            : [config('mail.funnel_report_to', 'varinder@pixilink.com')];
-
-        try {
-            Mail::send(
-                ['html' => 'emails.funnel_report'],
-                $viewData,
-                function ($m) use ($to, $day, $body) {
-                    $m->to($to)->subject('Site funnel — ' . $day->format('D j M Y'));
-                    // text/plain alternative: better in stripped-down clients, and helps
-                    // this not look like bulk mail.
-                    $m->getSymfonyMessage()->text($body);
-                }
-            );
-            $this->info('Sent to ' . implode(', ', $to));
-        } catch (\Throwable $e) {
-            $this->error('Send failed: ' . $e->getMessage());
-            return self::FAILURE;
-        }
-
-        return self::SUCCESS;
+        return [
+            'dayLabel'  => $day->format('l j F Y'),
+            'dayShort'  => $day->format('D j M'),
+            'siteLabel' => $siteLabel,
+            'engaged'   => $engaged,
+            'engaged7'  => $engaged7,
+            'captured'  => $captured,
+            'rate'      => $rate,
+            'groups'    => $groups,
+            'text'      => $text,
+        ];
     }
 }
