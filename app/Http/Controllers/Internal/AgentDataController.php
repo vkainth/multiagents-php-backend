@@ -4693,6 +4693,11 @@ class AgentDataController extends Controller
         }
 
         $file = $req->file('photo');
+        // Real validation, not extension trust: 10MB cap, and the file must decode as an
+        // actual image. Previously this accepted any bytes with a .jpg name, unbounded.
+        if ($file->getSize() > 10 * 1024 * 1024) {
+            return response()->json(['error' => 'File too large (max 10MB).'], 422);
+        }
         $ext  = strtolower($file->getClientOriginalExtension() ?: 'jpg');
         if (! in_array($ext, ['jpg', 'jpeg', 'png', 'webp'])) {
             return response()->json(['error' => 'Unsupported file type. Use jpg, png, or webp.'], 422);
@@ -4700,6 +4705,53 @@ class AgentDataController extends Controller
 
         $filename = 'agent_' . $id . '_' . uniqid() . '.' . $ext;
         $file->storeAs('agents', $filename, 'public');
+        $stored = storage_path('app/public/agents/' . $filename);
+
+        // Downscale at upload. These files are served RAW — /storage/ paths bypass the
+        // media resizer (imgUrl passes them through), so whatever lands here is exactly
+        // what every phone downloads. A 4000px camera original served into a 36px nav
+        // avatar was costing 250KB+ per page; the site never renders a headshot above
+        // 900px. GD re-encode also destroys any non-image payload smuggled past the
+        // extension check.
+        try {
+            $info = @getimagesize($stored);
+            if ($info === false) {
+                @unlink($stored);
+                return response()->json(['error' => 'File is not a valid image.'], 422);
+            }
+            [$w, $h] = $info;
+            $src = match ($info[2]) {
+                IMAGETYPE_JPEG => @imagecreatefromjpeg($stored),
+                IMAGETYPE_PNG  => @imagecreatefrompng($stored),
+                IMAGETYPE_WEBP => @imagecreatefromwebp($stored),
+                default        => false,
+            };
+            if ($src !== false) {
+                $max = 900;
+                if ($w > $max || $h > $max) {
+                    $scale = min($max / $w, $max / $h);
+                    $nw = (int) round($w * $scale);
+                    $nh = (int) round($h * $scale);
+                    $dst = imagecreatetruecolor($nw, $nh);
+                    // Keep PNG/WebP transparency through the resample.
+                    imagealphablending($dst, false);
+                    imagesavealpha($dst, true);
+                    imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $w, $h);
+                    imagedestroy($src);
+                    $src = $dst;
+                }
+                match ($info[2]) {
+                    IMAGETYPE_JPEG => imagejpeg($src, $stored, 82),
+                    IMAGETYPE_PNG  => imagepng($src, $stored, 8),
+                    IMAGETYPE_WEBP => imagewebp($src, $stored, 82),
+                };
+                imagedestroy($src);
+            }
+        } catch (\Throwable $e) {
+            // A resize failure must not lose the upload — the oversized original still
+            // works, it is just heavy. Log and continue.
+            \Illuminate\Support\Facades\Log::warning('uploadAgentPhoto resize failed: ' . $e->getMessage());
+        }
 
         $publicUrl = config('app.url') . '/storage/agents/' . $filename;
         $agent->update(['photo_path' => $publicUrl]);
