@@ -6709,6 +6709,55 @@ class AgentDataController extends Controller
      * GET /api-internal/agent/{slug}/pages
      * Returns agent CMS guide pages. Returns empty when table not provisioned.
      */
+    /**
+     * GET /api-internal/agent/{slug}/page/{pageSlug}
+     *
+     * The route (api-internal.php:74) has always pointed at ::page(), but the method did
+     * not exist, so EVERY agent's every content page 500'd:
+     *
+     *   randy/tricity/sharene x sellers/buyers/about  ->  all HTTP 500
+     *   "Call to undefined method AgentDataController::page()"
+     *
+     * getPage() in lib/api.ts catches the failure and falls back to FALLBACK_PAGES, which
+     * is Randy's content — so Sharene's /sellers was titled "Sell Your Home in South Surrey
+     * & White Rock | Randy Dyck" and described his Cloverdale service area. Every agent
+     * without their own page row inherited his identity in title and meta description.
+     *
+     * Shaped identically to pages() below so the two cannot drift.
+     */
+    public function page(string $slug, string $pageSlug): \Illuminate\Http\JsonResponse
+    {
+        $agent = \Illuminate\Support\Facades\DB::table('agents')->where('slug', $slug)->first();
+        if (! $agent) return response()->json(null);
+
+        if (! \Illuminate\Support\Facades\Schema::hasTable('agent_pages')) {
+            return response()->json(null);
+        }
+
+        $r = \Illuminate\Support\Facades\DB::table('agent_pages')
+            ->where('agent_id', $agent->id)
+            ->where('slug', $pageSlug)
+            ->first();
+
+        // 200 with null, not 404: the frontend treats a thrown/!ok response as "backend
+        // broken" and substitutes fallback content. "This agent has no such page" is an
+        // answer, and must not be mistaken for a failure.
+        if (! $r) return response()->json(null);
+
+        return response()->json([
+            'slug'             => $r->slug,
+            'title'            => $r->title ?? null,
+            'subtitle'         => $r->subtitle ?? null,
+            'hero_image_url'   => $r->hero_image_url ?? null,
+            'body'             => $r->body ?? null,
+            'blocks'           => json_decode($r->blocks ?? '[]', true) ?? [],
+            'cta_label'        => $r->cta_label ?? null,
+            'cta_url'          => $r->cta_url ?? null,
+            'meta_title'       => $r->meta_title ?? null,
+            'meta_description' => $r->meta_description ?? null,
+        ]);
+    }
+
     public function pages(string $slug): \Illuminate\Http\JsonResponse
     {
         $agent = \Illuminate\Support\Facades\DB::table('agents')->where('slug', $slug)->first();
