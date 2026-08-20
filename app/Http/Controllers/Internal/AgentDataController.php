@@ -1020,7 +1020,10 @@ class AgentDataController extends Controller
             if (\Illuminate\Support\Facades\Schema::hasTable('agent_media')) {
                 $collection = $req->query('collection');
                 $q = \Illuminate\Support\Facades\DB::table('agent_media')
-                    ->where('agent_id', $agent->id);
+                    ->where('agent_id', $agent->id)
+                    // Honour the hide toggle. NULL counts as visible so rows predating
+                    // the column keep showing.
+                    ->where(function ($w) { $w->where('visible', 1)->orWhereNull('visible'); });
                 if ($collection) $q->where('collection', $collection);
                 $rows = $q->orderBy('sort_order')->orderBy('id')->get();
                 if ($rows->isNotEmpty()) {
