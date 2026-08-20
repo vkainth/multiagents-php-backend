@@ -98,7 +98,20 @@ return [
     'twilio' => [
         'sid'        => env('TWILIO_SID'),
         'token'      => env('TWILIO_TOKEN'),
+
+        // Twilio Verify owns its own sender pool, so OTP needs no 'from'. That is why
+        // OTP has always worked while every agent-notification SMS silently failed:
+        // those use the plain Messaging API (messages->create()), which requires a
+        // number we own, and services.twilio.from was undefined - so the call threw and
+        // the surrounding catch swallowed it.
         'verify_sid' => env('TWILIO_VERIFY_SID'),
+
+        // A phone number is not a secret, so the default lives here rather than in .env
+        // (which this project does not edit). Overridable per-environment via TWILIO_FROM.
+        // Chosen because it is the only unnamed SMS-capable number on the account not
+        // already owned by another workflow (N8N / Booking Provider / AI Booking /
+        // AI Backup), so replies to agent alerts cannot land in the wrong pipeline.
+        'from'       => env('TWILIO_FROM', '+16042294688'),
     ],
 
     'walkscore' => [
