@@ -166,6 +166,13 @@ Route::prefix('auth')->group(function () {
 
 
 /**
+ * Agent sold record ("Recently Sold by …"). getUnifiedSolds() in lib/api.ts has always
+ * called this; the route was missing, so every request 404'd and the gallery rendered
+ * nothing for every agent. Controller method restored alongside.
+ */
+Route::get('agent/{slug}/buyer-solds', [AgentDataController::class, 'buyerSolds']);
+
+/**
  * Listing alerts — Bearer-token auth. The Next.js bell on every active listing has
  * been posting to these paths since it shipped, but the routes did not exist, so
  * every request 404'd and the user's intent reached nobody. Recorded as a lead;

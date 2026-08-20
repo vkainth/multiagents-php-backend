@@ -6867,4 +6867,165 @@ class AgentDataController extends Controller
     }
 
 
+
+    /**
+     * Restored from AgentDataController.php.bak.20260722162412 (lines 6268-6418).
+     *
+     * The frontend has always called this - getUnifiedSolds() in lib/api.ts hits
+     * /api-internal/agent/{slug}/buyer-solds - but the method and its route were
+     * dropped from the live controller, so every request 404'd. getUnifiedSolds
+     * catches the failure and returns an empty set, so the "Recently Sold by"
+     * gallery silently rendered nothing for every agent rather than erroring.
+     */
+    public function buyerSolds(\Illuminate\Http\Request $request, string $slug): \Illuminate\Http\JsonResponse
+    {
+        $agent = \App\Models\Agent::with(['settings', 'mls_ids', 'territories'])->where('slug', $slug)->first();
+        if (! $agent) return response()->json(['items' => [], 'total_count' => 0, 'total_volume' => 0, 'page' => 1, 'limit' => 24]);
+
+        $page  = max(1, (int) $request->query('page', 1));
+        $limit = 24;
+
+        $cacheKey = 'unified_solds_v1_' . $slug . '_p' . $page;
+        $data = Cache::remember($cacheKey, 1800, function () use ($agent, $page, $limit) {
+            $mlsIds  = DB::table('agent_mls_ids')->where('agent_id', $agent->id)->pluck('mls_id')->toArray();
+            $cutoff  = date('Y-m-d', strtotime('-5 years'));
+            $allItems = [];
+
+            // Listing-side solds
+            if (! empty($mlsIds)) {
+                $rows = DB::connection('mysql_mlsr')
+                    ->table('mlsr_listings_master')
+                    ->whereIn('agent_id', $mlsIds)
+                    ->where('status', 'Sold')
+                    ->where('soldprice_2', '>', 0)
+                    ->where('sold_date', '>=', $cutoff)
+                    ->orderByDesc('sold_date')
+                    ->limit(200)
+                    ->get(['listingid', 'streetaddress', 'city', 'soldprice_2', 'sold_date',
+                           'listingtype', 'bedrooms', 'bathstotal', 'livingarea', 'livingarea_2',
+                           'mainpicurl', 'thumbnailurl']);
+
+                foreach ($rows as $r) {
+                    $allItems[] = [
+                        'role'            => 'listing',
+                        'mls_id'          => $r->listingid,
+                        'address'         => $r->streetaddress,
+                        'city'            => $r->city,
+                        'sold_price'      => $r->soldprice_2 > 0 ? (int) $r->soldprice_2 : null,
+                        'sold_date'       => $r->sold_date,
+                        'type'            => $r->listingtype ?? null,
+                        'beds'            => $r->bedrooms ? (int) $r->bedrooms : null,
+                        'baths'           => $r->bathstotal ? (float) $r->bathstotal : null,
+                        'sqft'            => (int) str_replace(',', '', (string) ($r->livingarea_2 ?: $r->livingarea ?: '0')) ?: null,
+                        'photo_url'       => (str_replace('http://', 'https://', $r->mainpicurl ?: $r->thumbnailurl ?: '') ?: null),
+                        'is_private_sale' => false,
+                        '_sort'           => $r->sold_date ?? '1970-01-01',
+                    ];
+                }
+            }
+
+            // Buyer-represented solds
+            $buyerRows = DB::table('agent_buyer_solds')
+                ->where('agent_id', $agent->id)
+                ->where('status', 'confirmed')
+                ->get();
+
+            $mlsLookupIds = $buyerRows->filter(function ($b) { return ! empty($b->mls_id) && ! $b->is_private_sale; })
+                ->pluck('mls_id')->toArray();
+
+            $mlsDetails = [];
+            if (! empty($mlsLookupIds)) {
+                $listings = DB::connection('mysql_mlsr')
+                    ->table('mlsr_listings_master')
+                    ->whereIn('listingid', $mlsLookupIds)
+                    ->get(['listingid', 'streetaddress', 'city', 'soldprice_2', 'sold_date',
+                           'listingtype', 'bedrooms', 'bathstotal', 'livingarea', 'livingarea_2',
+                           'mainpicurl', 'thumbnailurl']);
+                foreach ($listings as $l) {
+                    $mlsDetails[$l->listingid] = $l;
+                }
+            }
+
+            foreach ($buyerRows as $b) {
+                if ($b->is_private_sale) {
+                    $allItems[] = [
+                        'role'            => 'buyer',
+                        'mls_id'          => null,
+                        'address'         => $b->address_raw,
+                        'city'            => null,
+                        'sold_price'      => null,
+                        'sold_date'       => null,
+                        'type'            => null,
+                        'beds'            => null,
+                        'baths'           => null,
+                        'sqft'            => null,
+                        'photo_url'       => null,
+                        'is_private_sale' => true,
+                        '_sort'           => $b->created_at ?? '1970-01-01',
+                    ];
+                } elseif (! empty($b->mls_id) && isset($mlsDetails[$b->mls_id])) {
+                    $l = $mlsDetails[$b->mls_id];
+                    $allItems[] = [
+                        'role'            => 'buyer',
+                        'mls_id'          => $l->listingid,
+                        'address'         => $l->streetaddress,
+                        'city'            => $l->city,
+                        'sold_price'      => $l->soldprice_2 > 0 ? (int) $l->soldprice_2 : null,
+                        'sold_date'       => $l->sold_date,
+                        'type'            => $l->listingtype ?? null,
+                        'beds'            => $l->bedrooms ? (int) $l->bedrooms : null,
+                        'baths'           => $l->bathstotal ? (float) $l->bathstotal : null,
+                        'sqft'            => (int) str_replace(',', '', (string) ($l->livingarea_2 ?: $l->livingarea ?: '0')) ?: null,
+                        'photo_url'       => (str_replace('http://', 'https://', $l->mainpicurl ?: $l->thumbnailurl ?: '') ?: null),
+                        'is_private_sale' => false,
+                        '_sort'           => $l->sold_date ?? '1970-01-01',
+                    ];
+                } else {
+                    $allItems[] = [
+                        'role'            => 'buyer',
+                        'mls_id'          => $b->mls_id,
+                        'address'         => $b->address_raw,
+                        'city'            => null,
+                        'sold_price'      => null,
+                        'sold_date'       => null,
+                        'type'            => null,
+                        'beds'            => null,
+                        'baths'           => null,
+                        'sqft'            => null,
+                        'photo_url'       => null,
+                        'is_private_sale' => false,
+                        '_sort'           => $b->created_at ?? '1970-01-01',
+                    ];
+                }
+            }
+
+            // Sort by sold_date DESC, paginate
+            usort($allItems, function ($a, $b) {
+                return strcmp($b['_sort'], $a['_sort']);
+            });
+
+            $totalCount  = count($allItems);
+            $soldItems   = array_filter($allItems, function ($i) { return $i['sold_price'] !== null; });
+            $totalVolume = (int) array_sum(array_column(array_values($soldItems), 'sold_price'));
+
+            return [
+                'all'          => $allItems,
+                'total_count'  => $totalCount,
+                'total_volume' => $totalVolume,
+            ];
+        });
+
+        $all    = $data['all'];
+        $offset = ($page - 1) * $limit;
+        $items  = array_slice($all, $offset, $limit);
+        $items  = array_map(function ($i) { unset($i['_sort']); return $i; }, $items);
+
+        return response()->json([
+            'items'        => array_values($items),
+            'total_count'  => $data['total_count'],
+            'total_volume' => $data['total_volume'],
+            'page'         => $page,
+            'limit'        => $limit,
+        ]);
+    }
 }
