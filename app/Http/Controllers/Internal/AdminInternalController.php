@@ -245,6 +245,7 @@ class AdminInternalController extends Controller
             'hero_stats'         => 'nullable|string|max:8000',
             'favicon_url'        => 'nullable|string|max:500',
             'guide_name'         => 'nullable|string|max:150',
+            'site_config'        => 'nullable|json|max:4000',
         ]);
 
         $agent = DB::transaction(function () use ($data) {
@@ -268,6 +269,7 @@ class AdminInternalController extends Controller
             ]);
 
             $agent->settings()->create([
+                'site_config'        => $data['site_config'] ?? null,
                 'custom_domain'      => $data['custom_domain'] ?? null,
                 'notification_email' => $data['notification_email'] ?? $data['email'],
                 'notification_phone' => $data['notification_phone'] ?? null,
@@ -351,6 +353,9 @@ class AdminInternalController extends Controller
             'achievements'            => 'nullable|string|max:8000',
             'co_agent_achievements'   => 'nullable|string|max:8000',
             'disable_sticky_bar'      => 'nullable|boolean',
+            // Design config (layout preset, hero style, palette, sections). Stored as JSON
+            // text: agent_settings.site_config is longText by the no-native-JSON rule.
+            'site_config'             => 'nullable|json|max:4000',
             'features'                => 'nullable|array',
         ]);
 
@@ -366,7 +371,7 @@ class AdminInternalController extends Controller
                              'ga4_id', 'fb_pixel_id', 'fub_enabled', 'ghl_enabled', 'social_links',
                              'subarea_whitelist', 'seo_noindex',
                              'photo_focal_x', 'photo_focal_y', 'residencity_region', 'hero_stats', 'area_expertise', 'favicon_url', 'guide_name',
-                             'achievements', 'co_agent_achievements', 'disable_sticky_bar'];
+                             'achievements', 'co_agent_achievements', 'disable_sticky_bar', 'site_config'];
             $settingsFields = array_intersect_key($data, array_flip($settingsKeys));
             if (! empty($settingsFields) || ! empty($data['fub_api_key']) || ! empty($data['ghl_api_key']) || ! empty($data['lofty_api_key'])) {
                 $settings = $agent->settings ?? $agent->settings()->make(['agent_id' => $agent->id]);
