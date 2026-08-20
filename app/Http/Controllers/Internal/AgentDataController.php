@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Validator;
 use App\Services\LeadPipeline;
 
 class AgentDataController extends Controller
@@ -6198,6 +6199,132 @@ class AgentDataController extends Controller
             return response()->json(['error' => 'Unauthorized'], 401);
         }
         $deleted = DB::table('agent_best_of_lists')->where('id', $listId)->where('agent_id', $agentId)->delete();
+        if (! $deleted) return response()->json(['error' => 'Not found'], 404);
+        return response()->json(['ok' => true]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Admin testimonial CRUD
+    |--------------------------------------------------------------------------
+    | agent_testimonials had a read endpoint and no way to write a row, so the
+    | table was empty for every agent and the testimonials section never rendered
+    | for anyone. Agents supply quotes directly; those get source 'manual', which
+    | TestimonialsCards already renders with no "via X" attribution, so a quote
+    | pasted in by hand is never dressed up as a verified platform review.
+    */
+
+    /** Shape a row for the admin UI. Kept separate so list/create/update agree. */
+    private function formatAdminTestimonial(object $t): array
+    {
+        return [
+            'id'          => (int) $t->id,
+            'source'      => $t->source,
+            'external_id' => $t->external_id,
+            'author_name' => $t->author_name,
+            'rating'      => (int) $t->rating,
+            'body'        => $t->body,
+            'date'        => $t->date,
+            'visible'     => (bool) $t->visible,
+        ];
+    }
+
+    public function adminTestimonialsList(Request $req, int $agentId): JsonResponse
+    {
+        if ($req->header('X-Admin-Secret') !== config('app.admin_api_secret')) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+        // Newest first, but rows without a date must not vanish to the bottom of a
+        // DESC sort silently -- order by id as the tiebreak so they stay reachable.
+        $rows = DB::table('agent_testimonials')
+            ->where('agent_id', $agentId)
+            ->orderByRaw('`date` IS NULL, `date` DESC, id DESC')
+            ->get();
+        return response()->json($rows->map(fn ($t) => $this->formatAdminTestimonial($t)));
+    }
+
+    public function adminTestimonialsCreate(Request $req, int $agentId): JsonResponse
+    {
+        if ($req->header('X-Admin-Secret') !== config('app.admin_api_secret')) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+        // Validator, not $req->validate(): validate() REDIRECTS on failure unless the caller
+        // happens to send Accept: application/json, so a client that omits the header gets a
+        // 302 where it expected an error body. An API should not depend on that.
+        $v = Validator::make($req->all(), [
+            'author_name' => 'required|string|max:255',
+            'body'        => 'required|string|max:5000',
+            'rating'      => 'nullable|integer|min:1|max:5',
+            'source'      => 'nullable|string|max:50',
+            'external_id' => 'nullable|string|max:255',
+            'date'        => 'nullable|date',
+            'visible'     => 'nullable|boolean',
+        ]);
+        if ($v->fails()) return response()->json(['error' => 'Validation failed', 'errors' => $v->errors()], 422);
+        $data = $v->validated();
+
+        $id = DB::table('agent_testimonials')->insertGetId([
+            'agent_id'    => $agentId,
+            'source'      => $data['source'] ?? 'manual',
+            'external_id' => $data['external_id'] ?? null,
+            'author_name' => $data['author_name'],
+            'rating'      => $data['rating'] ?? 5,
+            'body'        => $data['body'],
+            'date'        => $data['date'] ?? null,
+            'visible'     => array_key_exists('visible', $data) ? (bool) $data['visible'] : true,
+            'created_at'  => now(),
+            'updated_at'  => now(),
+        ]);
+        $row = DB::table('agent_testimonials')->where('id', $id)->first();
+        return response()->json($this->formatAdminTestimonial($row), 201);
+    }
+
+    public function adminTestimonialsUpdate(Request $req, int $agentId, int $testimonialId): JsonResponse
+    {
+        if ($req->header('X-Admin-Secret') !== config('app.admin_api_secret')) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+        $row = DB::table('agent_testimonials')
+            ->where('id', $testimonialId)->where('agent_id', $agentId)->first();
+        if (! $row) return response()->json(['error' => 'Not found'], 404);
+
+        // Validator, not $req->validate(): validate() REDIRECTS on failure unless the caller
+        // happens to send Accept: application/json, so a client that omits the header gets a
+        // 302 where it expected an error body. An API should not depend on that.
+        $v = Validator::make($req->all(), [
+            'author_name' => 'sometimes|required|string|max:255',
+            'body'        => 'sometimes|required|string|max:5000',
+            'rating'      => 'sometimes|nullable|integer|min:1|max:5',
+            'source'      => 'sometimes|nullable|string|max:50',
+            'external_id' => 'sometimes|nullable|string|max:255',
+            'date'        => 'sometimes|nullable|date',
+            'visible'     => 'sometimes|boolean',
+        ]);
+        if ($v->fails()) return response()->json(['error' => 'Validation failed', 'errors' => $v->errors()], 422);
+        $data = $v->validated();
+
+        $update = ['updated_at' => now()];
+        foreach (['author_name', 'body', 'rating', 'source', 'external_id', 'date'] as $f) {
+            if (array_key_exists($f, $data)) $update[$f] = $data[$f];
+        }
+        if (array_key_exists('visible', $data)) $update['visible'] = (bool) $data['visible'];
+        // rating and source are NOT NULL in the schema; a cleared field falls back to the
+        // column default rather than writing null and failing the insert.
+        if (array_key_exists('rating', $update) && $update['rating'] === null) $update['rating'] = 5;
+        if (array_key_exists('source', $update) && $update['source'] === null) $update['source'] = 'manual';
+
+        DB::table('agent_testimonials')->where('id', $testimonialId)->update($update);
+        $updated = DB::table('agent_testimonials')->where('id', $testimonialId)->first();
+        return response()->json($this->formatAdminTestimonial($updated));
+    }
+
+    public function adminTestimonialsDelete(Request $req, int $agentId, int $testimonialId): JsonResponse
+    {
+        if ($req->header('X-Admin-Secret') !== config('app.admin_api_secret')) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+        $deleted = DB::table('agent_testimonials')
+            ->where('id', $testimonialId)->where('agent_id', $agentId)->delete();
         if (! $deleted) return response()->json(['error' => 'Not found'], 404);
         return response()->json(['ok' => true]);
     }

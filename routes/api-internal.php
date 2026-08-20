@@ -264,6 +264,10 @@ Route::prefix('admin')->middleware([\App\Http\Middleware\VerifyAdminSecret::clas
     Route::post('agents/{id}/best-of-lists', [AgentDataController::class, 'adminBestOfListsCreate'])->where('id', '[a-zA-Z0-9_-]+');
     Route::put('agents/{id}/best-of-lists/{listId}', [AgentDataController::class, 'adminBestOfListsUpdate'])->where('id', '[0-9]+')->where('listId', '[0-9]+');
     Route::delete('agents/{id}/best-of-lists/{listId}', [AgentDataController::class, 'adminBestOfListsDelete'])->where('id', '[0-9]+')->where('listId', '[0-9]+');
+    Route::get('agents/{id}/testimonials', [AgentDataController::class, 'adminTestimonialsList'])->where('id', '[0-9]+');
+    Route::post('agents/{id}/testimonials', [AgentDataController::class, 'adminTestimonialsCreate'])->where('id', '[0-9]+');
+    Route::put('agents/{id}/testimonials/{testimonialId}', [AgentDataController::class, 'adminTestimonialsUpdate'])->where('id', '[0-9]+')->where('testimonialId', '[0-9]+');
+    Route::delete('agents/{id}/testimonials/{testimonialId}', [AgentDataController::class, 'adminTestimonialsDelete'])->where('id', '[0-9]+')->where('testimonialId', '[0-9]+');
 
     Route::post('test-ghl-push', [AgentDataController::class, 'testGhlPush']);
     Route::get('platform-settings',  [AgentDataController::class, 'getPlatformSettings']);
