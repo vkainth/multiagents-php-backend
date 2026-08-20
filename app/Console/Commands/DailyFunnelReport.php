@@ -94,40 +94,62 @@ class DailyFunnelReport extends Command
         $engaged  = $starts + $impressions;
         $engaged7 = $starts7 + $ev('prompt_impression', $week);
 
-        $pad = fn($l, $a, $b) => sprintf("  %-34s %6s   %6s\n", $l, $a, $b);
+        // Structured once, rendered twice: the Blade view for the email, the same numbers
+        // as plain text for --dry-run and as the text/plain alternative part.
+        $groups = [
+            ['title' => 'Showing interest', 'class' => 's-interest', 'rows' => [
+                ['label' => 'Started filling a form',        'day' => $starts,      'week' => $starts7],
+                ['label' => 'Shown a sign-in prompt',        'day' => $impressions, 'week' => $ev('prompt_impression', $week)],
+            ]],
+            ['title' => 'Dropped out', 'class' => 's-dropped', 'rows' => [
+                ['label' => 'Started a form, did not submit', 'day' => $abandons,  'week' => $abandons7],
+                ['label' => 'Wrong or expired code',          'day' => $otpFailed, 'week' => $otp7],
+                ['label' => 'Phone number rejected',          'day' => $badPhone,  'week' => $ev('phone_invalid', $week)],
+            ]],
+            ['title' => 'Converted', 'class' => 's-convert', 'rows' => [
+                ['label' => 'Leads captured',             'day' => $leads,        'week' => $leads7],
+                ['label' => 'Signed up',                  'day' => $signups,      'week' => $signups7],
+                ['label' => 'Signed up + phone verified', 'day' => $verified,     'week' => $verified7],
+                ['label' => 'Clicked register at gate',   'day' => $gateRegister, 'week' => $ev('register', $week)],
+                ['label' => 'Clicked sign-in at gate',    'day' => $gateLogin,    'week' => $ev('login', $week)],
+            ]],
+        ];
 
+        $captured = $leads + $signups;
+        $rate     = $engaged > 0 ? round(($captured / $engaged) * 100, 1) : 0;
+
+        $viewData = [
+            'dayLabel'  => $day->format('l j F Y'),
+            'dayShort'  => $day->format('D j M'),
+            'engaged'   => $engaged,
+            'engaged7'  => $engaged7,
+            'groups'    => $groups,
+            'captured'  => $captured,
+            'rate'      => $rate,
+        ];
+
+        // Plain-text twin.
         $body  = "Site funnel — {$day->format('D j M Y')}\n";
         $body .= str_repeat('=', 54) . "\n\n";
-        $body .= sprintf("  %-34s %6s   %6s\n", '', 'day', '7 days');
-        $body .= str_repeat('-', 54) . "\n";
-        $body .= "\nPEOPLE SHOWING INTEREST\n";
-        $body .= $pad('Engaged (form started or prompted)', $engaged, $engaged7);
-        $body .= $pad('Started filling a form', $starts, $starts7);
-        $body .= $pad('Saw a sign-in prompt', $impressions, $ev('prompt_impression', $week));
-        $body .= "\nDROPPED OUT\n";
-        $body .= $pad('Started a form, did not submit', $abandons, $abandons7);
-        $body .= $pad('Wrong / expired code', $otpFailed, $otp7);
-        $body .= $pad('Phone number rejected', $badPhone, $ev('phone_invalid', $week));
-        $body .= "\nCONVERTED\n";
-        $body .= $pad('Leads captured', $leads, $leads7);
-        $body .= $pad('Signed up', $signups, $signups7);
-        $body .= $pad('Signed up + phone verified', $verified, $verified7);
-        $body .= $pad('Clicked register at the gate', $gateRegister, $ev('register', $week));
-        $body .= $pad('Clicked sign-in at the gate', $gateLogin, $ev('login', $week));
-
-        $body .= "\n" . str_repeat('-', 54) . "\n";
-        if ($engaged > 0) {
-            $rate = round((($leads + $signups) / max($engaged, 1)) * 100, 1);
-            $body .= "  Of {$engaged} people who engaged, " . ($leads + $signups) . " gave us their details ({$rate}%).\n";
-        } else {
-            $body .= "  No tracked engagement on this day.\n";
+        $body .= "  {$engaged} people showed interest on this day ({$engaged7} over 7 days)\n\n";
+        $body .= sprintf("  %-34s %6s   %6s\n", '', $day->format('D j'), '7 days');
+        foreach ($groups as $g) {
+            $body .= "\n" . strtoupper($g['title']) . "\n";
+            foreach ($g['rows'] as $r) {
+                $body .= sprintf("  %-34s %6s   %6s\n", $r['label'], $r['day'], $r['week']);
+            }
         }
+        $body .= "\n" . str_repeat('-', 54) . "\n";
+        $body .= $engaged > 0
+            ? "  Of {$engaged} people who engaged, {$captured} gave us their details ({$rate}%).\n"
+            : "  No tracked engagement on this day.\n";
         $body .= "\nNotes:\n";
-        $body .= "  - \"Engaged\" counts people who started a form or were shown a sign-in\n";
-        $body .= "    prompt. It is anonymous - no field values are recorded.\n";
+        $body .= "  - \"Showed interest\" = started a form or was shown a sign-in prompt.\n";
+        $body .= "    Anonymous - no field values are recorded.\n";
         $body .= "  - Sign-ups exclude bccondosandhomes.com (legacy) accounts.\n";
-        $body .= "  - Abandons are detected on page-hide, so a browser that is force-quit\n";
-        $body .= "    may not report one. Treat abandons as a floor, not an exact figure.\n";
+        $body .= "  - Abandons are detected on page-hide, so a force-quit browser may not\n";
+        $body .= "    report one. Treat abandons as a floor, not an exact figure.\n";
+        $body .= "  - Days run midnight to midnight Pacific.\n";
 
         if ($this->option('dry-run')) {
             $this->line($body);
@@ -139,9 +161,16 @@ class DailyFunnelReport extends Command
             : [config('mail.funnel_report_to', 'varinder@pixilink.com')];
 
         try {
-            Mail::raw($body, function ($m) use ($to, $day) {
-                $m->to($to)->subject('Site funnel — ' . $day->format('D j M Y'));
-            });
+            Mail::send(
+                ['html' => 'emails.funnel_report'],
+                $viewData,
+                function ($m) use ($to, $day, $body) {
+                    $m->to($to)->subject('Site funnel — ' . $day->format('D j M Y'));
+                    // text/plain alternative: better in stripped-down clients, and helps
+                    // this not look like bulk mail.
+                    $m->getSymfonyMessage()->text($body);
+                }
+            );
             $this->info('Sent to ' . implode(', ', $to));
         } catch (\Throwable $e) {
             $this->error('Send failed: ' . $e->getMessage());
