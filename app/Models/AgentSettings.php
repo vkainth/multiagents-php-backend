@@ -28,10 +28,19 @@ class AgentSettings extends Model
             'subarea_whitelist'    => 'array',
             'notification_prefs'   => 'array',
             'fub_enabled'          => 'boolean',
-            'fub_api_key'          => 'encrypted',
             'ghl_enabled'          => 'boolean',
             'lofty_enabled'        => 'boolean',
-            'lofty_api_key'        => 'encrypted',
+            // CRM API keys are deliberately NOT cast 'encrypted'. Every stored key is
+            // already plaintext (agent 1 ghl 40 chars, agent 2 lofty 171 chars - neither
+            // is a Laravel envelope, neither decrypts), and the cast made the code lie
+            // about that in two harmful ways:
+            //   1. reading $settings->lofty_api_key threw DecryptException, which is why
+            //      AdminInternalController:541 had to reach for getRawOriginal().
+            //   2. the admin UI assigns through the model (AdminInternalController:381,
+            //      387), so the NEXT key typed in would have been encrypted while the
+            //      existing ones stayed plaintext - and pushToGoHighLevel does not
+            //      decrypt at all, so GHL would have silently stopped authenticating.
+            // Storage is plaintext by decision; the reads below tolerate either form.
             'seo_noindex'          => 'boolean',
             'disable_sticky_bar'   => 'boolean',
         ];

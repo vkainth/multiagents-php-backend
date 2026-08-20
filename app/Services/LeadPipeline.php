@@ -180,7 +180,13 @@ class LeadPipeline
             }
             $contactPayload = array_filter($contactPayload, fn($v) => $v !== null && $v !== '');
 
-            $response = Http::withToken($row->ghl_api_key)
+            // Tolerate either storage form. Keys are plaintext today, but a value
+            // encrypted by an older cast must not silently break auth - pushToLofty
+            // already does this; GHL did not.
+            $ghlKey = $row->ghl_api_key;
+            try { $ghlKey = decrypt($ghlKey); } catch (\Throwable $ignored) {}
+
+            $response = Http::withToken($ghlKey)
                 ->withHeaders(['Version' => '2021-07-28'])
                 ->timeout(8)
                 ->post('https://services.leadconnectorhq.com/contacts/', $contactPayload);
@@ -256,7 +262,13 @@ class LeadPipeline
                 ])),
             ];
 
-            $response = Http::withToken($row->ghl_api_key)
+            // Tolerate either storage form. Keys are plaintext today, but a value
+            // encrypted by an older cast must not silently break auth - pushToLofty
+            // already does this; GHL did not.
+            $ghlKey = $row->ghl_api_key;
+            try { $ghlKey = decrypt($ghlKey); } catch (\Throwable $ignored) {}
+
+            $response = Http::withToken($ghlKey)
                 ->withHeaders(['Version' => '2021-07-28'])
                 ->timeout(8)
                 ->post('https://services.leadconnectorhq.com/contacts/upsert', $payload);
