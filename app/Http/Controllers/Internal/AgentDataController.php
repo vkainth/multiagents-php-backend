@@ -612,6 +612,38 @@ class AgentDataController extends Controller
             $rentalIncome = '$' . $rm[1] . '/mo';
         }
 
+        // Is this the agent's OWN listing? An agent's own sold listings are their own
+        // track record and are never gated behind a sign-in — only other brokerages'
+        // sold data is. Resolved here rather than in the frontend so the rule lives with
+        // the data: match the listing's agent slots against the MLS ids registered to
+        // this agent, the same agent_mls_ids table ownListings() uses. Broader than
+        // ownListings on purpose — that method matches agent_id only, while a home she
+        // CO-listed (agent2/agent3) is still her listing for gating purposes. Left
+        // ownListings alone deliberately: widening it would change which homes appear in
+        // her listings gallery, which is a content decision, not a gating one.
+        $isOwnListing = false;
+        try {
+            $agentRow = DB::table('agents')->where('slug', $slug)->first();
+            if ($agentRow) {
+                $agentMlsIds = DB::table('agent_mls_ids')
+                    ->where('agent_id', $agentRow->id)
+                    ->pluck('mls_id')
+                    ->toArray();
+                if (!empty($agentMlsIds)) {
+                    foreach ([$listing->agent_id, $listing->agent2_id, $listing->agent3_id] as $slot) {
+                        if (!empty($slot) && in_array($slot, $agentMlsIds, true)) {
+                            $isOwnListing = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // Fail CLOSED: on any error the listing is treated as somebody else's, so a
+            // lookup failure can never leak another brokerage's sold price.
+            $isOwnListing = false;
+        }
+
         return response()->json([
             'id'               => $listing->sysid,
             'mls_no'           => $listing->listingid,
@@ -619,6 +651,7 @@ class AgentDataController extends Controller
             'city'             => $listing->city,
             'subarea'          => $listing->subarea,
             'status'           => $listing->status,
+            'is_own_listing'   => $isOwnListing,
             'list_price'       => (int) $listing->listprice_2,
             'sold_price'       => $listing->soldprice_2 ? (int) $listing->soldprice_2 : null,
             'original_price'   => ((int) $listing->original_price > 0) ? (int) $listing->original_price : null,
