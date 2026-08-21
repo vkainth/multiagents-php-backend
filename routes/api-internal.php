@@ -50,6 +50,10 @@ Route::prefix('agent')->group(function () {
         ->where('slug', '[a-z0-9\-]+');
     Route::get('{slug}/neighbourhoods', [AgentDataController::class, 'neighbourhoods'])
         ->where('slug', '[a-z0-9\-]+');
+    // Per-subarea new-construction aggregates, scoped to the agent's own territories.
+    // Backs the /new-construction page, which used to hard-code its areas and prices.
+    Route::get('{slug}/new-construction-areas', [AgentDataController::class, 'newConstructionAreas'])
+        ->where('slug', '[a-z0-9\-]+');
     Route::get('{slug}/neighbourhood/{subareaSlug}/sold', [AgentDataController::class, 'neighbourhoodSold'])
         ->where('slug', '[a-z0-9\-]+')
         ->where('subareaSlug', '[a-z0-9\-]+');

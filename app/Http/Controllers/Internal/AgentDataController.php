@@ -2097,6 +2097,96 @@ class AgentDataController extends Controller
     /**
      * Neighbourhood summary list — subareas with active listings in agent's territory cities.
      */
+    /**
+     * Per-subarea new-construction aggregates for ONE agent's own territories.
+     *
+     * The /new-construction page used to hard-code its neighbourhood cards — three
+     * hand-written regional variants, 18 cards, with prose and price ranges typed in by
+     * hand. Those prices had drifted from reality (Grandview Heights was advertised as
+     * "$699K - $1.8M" while the actual active new builds there ran $780K-$2.2M), and any
+     * agent outside the three hard-coded regions got a 404.
+     *
+     * Everything the page needs per area is aggregated here in one grouped query so the
+     * numbers are real and the areas are whichever ones the agent actually covers:
+     * the same territories + subarea_whitelist scoping neighbourhoods() uses.
+     *
+     * min_year is supplied by the caller because the "what counts as a new build" rule
+     * lives with the page (it widens to the previous year during Jan/Feb, when the current
+     * year has almost no completions yet); it is clamped to a sane window here regardless.
+     */
+    public function newConstructionAreas(string $slug, Request $req): JsonResponse
+    {
+        $agent = Agent::with(['territories', 'settings'])->where('slug', $slug)->first();
+        if (! $agent) return response()->json(['error' => 'Agent not found'], 404);
+
+        $cities = $agent->territories->pluck('city')->filter()->unique()->values()->toArray();
+        if (empty($cities)) return response()->json(['min_year' => null, 'total' => 0, 'areas' => []]);
+
+        $thisYear = (int) date('Y');
+        $minYear  = (int) $req->query('min_year', (string) $thisYear);
+        // Clamp: a stray value must not turn this into "every home ever built".
+        if ($minYear < $thisYear - 5 || $minYear > $thisYear + 1) $minYear = $thisYear;
+
+        $subareaWhitelist = null;
+        if ($agent->settings) {
+            $raw = $agent->settings->subarea_whitelist;
+            if ($raw) {
+                $decoded = is_array($raw) ? $raw : json_decode($raw, true);
+                if (is_array($decoded) && count($decoded) > 0) $subareaWhitelist = $decoded;
+            }
+        }
+
+        // CAST is load-bearing: listprice/listprice_2 are stored as strings, so a bare
+        // MIN()/MAX() compares them lexicographically and returns nonsense — "1090900"
+        // sorts below "899900", which had min_price coming back ABOVE max_price on every
+        // row. Compare as numbers.
+        $priceExpr = '(CASE WHEN CAST(listprice_2 AS DECIMAL(14,2)) > 0'
+            . ' THEN CAST(listprice_2 AS DECIMAL(14,2))'
+            . ' ELSE CAST(listprice AS DECIMAL(14,2)) END)';
+
+        $q = Listings::withoutGlobalScopes()
+            ->where('status', 'Active')
+            ->whereIn('city', $cities)
+            ->whereNotNull('subarea')
+            ->where('subarea', '!=', '')
+            ->whereNotNull('yearbuilt')
+            ->where('yearbuilt', '>=', $minYear);
+
+        if ($subareaWhitelist) $q->whereIn('subarea', $subareaWhitelist);
+
+        try {
+            $rows = $q->selectRaw(
+                    'subarea, MAX(city) as city, COUNT(*) as new_build_count, '
+                    . "MIN($priceExpr) as min_price, MAX($priceExpr) as max_price, "
+                    . 'GROUP_CONCAT(DISTINCT type ORDER BY type SEPARATOR "|") as types'
+                )
+                ->groupBy('subarea')
+                ->orderByDesc('new_build_count')
+                ->limit(12)
+                ->get();
+        } catch (\Throwable $e) {
+            return response()->json(['min_year' => $minYear, 'total' => 0, 'areas' => []]);
+        }
+
+        $areas = $rows->map(function ($r) {
+            $types = array_values(array_filter(array_map('trim', explode('|', (string) $r->types))));
+            return [
+                'subarea'         => $r->subarea,
+                'city'            => $r->city,
+                'new_build_count' => (int) $r->new_build_count,
+                'min_price'       => ((int) $r->min_price) > 0 ? (int) $r->min_price : null,
+                'max_price'       => ((int) $r->max_price) > 0 ? (int) $r->max_price : null,
+                'types'           => $types,
+            ];
+        })->values();
+
+        return response()->json([
+            'min_year' => $minYear,
+            'total'    => (int) $areas->sum('new_build_count'),
+            'areas'    => $areas,
+        ]);
+    }
+
     public function neighbourhoods(string $slug): JsonResponse
     {
         $agent = Agent::with(['territories', 'settings'])->where('slug', $slug)->first();
