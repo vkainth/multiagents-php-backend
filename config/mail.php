@@ -113,4 +113,22 @@ return [
         'name' => env('MAIL_FROM_NAME', 'Example'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Lead Backup Recipient
+    |--------------------------------------------------------------------------
+    |
+    | Optional platform-side copy of every agent lead, a failsafe for when the
+    | CRM push (Lofty/FUB/GHL) silently drops one.
+    |
+    | Defaults to OFF, deliberately. This used to be the literal string
+    | 'hello@suburbia.ca' hardcoded in AgentDataController::contact(), which meant
+    | EVERY agent's leads were copied to one particular agent's mailbox — Randy's
+    | client enquiries, names, phones and messages included. Unset means no copy is
+    | sent, which is the only safe default; set LEAD_BACKUP_EMAIL to a PLATFORM
+    | address (never an agent's) to turn the failsafe back on.
+    |
+    */
+    'lead_backup_to' => env('LEAD_BACKUP_EMAIL'),
+
 ];

@@ -1837,7 +1837,8 @@ class AgentDataController extends Controller
      * Normalises field variants, saves to agent_leads (with notes), sends a rich notification email.
      * Anti-spam: IP rate limit (5/10 min), per-phone/email rate limit (3/30 min),
      *            honeypot field (website_url), phone digit sanity check.
-     * Backup email to hello@suburbia.ca fires whenever lead has phone or email (Lofty failsafe).
+     * Optional platform backup copy (config mail.lead_backup_to, off unless set) as a
+     * failsafe for a dropped CRM push. Never an agent address — see the block below.
      */
     public function contact(string $slug, Request $req): JsonResponse
     {
@@ -2041,12 +2042,27 @@ class AgentDataController extends Controller
             }
         }
 
-        // Platform backup email — fires whenever lead has phone or email (Lofty failsafe).
-        if (!empty($data['phone']) || !empty($data['email'])) {
+        // Optional platform backup copy — a failsafe for a silently-dropped CRM push.
+        //
+        // The recipient was hardcoded to 'hello@suburbia.ca', so EVERY agent's leads were
+        // copied to one particular agent's inbox: a live test of Randy's contact form sent
+        // his enquiry to randy@eximus.com AND to hello@suburbia.ca, complete with the
+        // prospect's name, phone, email and message. That is one brokerage receiving
+        // another's client data. It also meant suburbia got two identical emails for each
+        // of its own leads, since the "backup" resolved to the same mailbox as its
+        // notification address.
+        //
+        // Now config-driven and OFF unless LEAD_BACKUP_EMAIL is set to a platform address,
+        // and never sent to the agent who already got the notification above.
+        $backupTo = config('mail.lead_backup_to');
+        if ($backupTo
+            && strcasecmp((string) $backupTo, (string) $notifyEmail) !== 0
+            && (!empty($data['phone']) || !empty($data['email']))
+        ) {
             try {
                 \Illuminate\Support\Facades\Mail::raw(
                     $body,
-                    fn ($m) => $m->to('hello@suburbia.ca')->subject("[{$typeLabel}] New Lead \xe2\x80\x94 {$subjectName}")
+                    fn ($m) => $m->to($backupTo)->subject("[{$typeLabel}] New Lead \xe2\x80\x94 {$subjectName}")
                 );
             } catch (\Throwable $backupMailErr) {
                 \Illuminate\Support\Facades\Log::warning('Contact backup mail failed', ['err' => $backupMailErr->getMessage()]);
