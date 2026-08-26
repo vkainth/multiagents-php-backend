@@ -139,6 +139,7 @@ class AgentLeadVerifiedJob implements ShouldQueue
                         "Page: {$lead->source_url}\n",
                         function ($m) use ($notifyEmail, $lead) {
                             $m->to($notifyEmail)
+                              ->from(config('mail.lead_from.address'), config('mail.lead_from.name'))
                               ->subject("New Verified Lead — {$lead->first_name} {$lead->last_name}");
                         }
                     );

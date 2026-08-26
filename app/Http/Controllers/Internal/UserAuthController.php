@@ -354,6 +354,7 @@ class UserAuthController extends Controller
                         . str_repeat('-', 44) . "\n"
                         . "View leads: https://website.pixilink.com/admin/agents/{$agent->id}/leads\n",
                         fn ($m) => $m->to($regNotifyEmail)
+                            ->from(config('mail.lead_from.address'), config('mail.lead_from.name'))
                             ->subject('[New Registration] ' . ($fullName ?: $user->email))
                     );
                 } catch (\Throwable $notifErr) {
@@ -1562,6 +1563,7 @@ class UserAuthController extends Controller
                         . str_repeat('-', 44) . "\n"
                         . "View leads: https://website.pixilink.com/admin/agents/{$agent->id}/leads\n",
                         fn ($m) => $m->to($regNotifyEmail)
+                            ->from(config('mail.lead_from.address'), config('mail.lead_from.name'))
                             ->subject('[New Registration] ' . ($fullName ?: $user->email))
                     );
                 } catch (\Throwable $notifErr) {

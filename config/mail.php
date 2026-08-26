@@ -131,4 +131,30 @@ return [
     */
     'lead_backup_to' => env('LEAD_BACKUP_EMAIL'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Lead Notification Sender
+    |--------------------------------------------------------------------------
+    |
+    | Who agent-facing lead mail comes FROM. Separate from mail.from because that
+    | one is the platform default for everything, including the consumer-facing
+    | verification and magic-link emails.
+    |
+    | These used to inherit mail.from, which is info@suburbia.ca — so every agent's
+    | lead alerts arrived branded as a different brokerage. Randy's notifications
+    | about findfraservalleyhomes.com reached randy@eximus.com as
+    | "Suburbia <info@suburbia.ca>"; SendGrid delivered all of them and not one was
+    | ever opened.
+    |
+    | pixilink.com is authenticated in SendGrid (em9101.pixilink.com, dkim1/dkim2
+    | valid), so mail from it is DKIM-signed and DMARC-aligned. Any replacement
+    | address MUST be on a domain authenticated there, or alignment breaks and
+    | deliverability gets worse, not better.
+    |
+    */
+    'lead_from' => [
+        'address' => env('LEAD_FROM_ADDRESS', 'info@pixilink.com'),
+        'name'    => env('LEAD_FROM_NAME', 'Pixilink Leads'),
+    ],
+
 ];

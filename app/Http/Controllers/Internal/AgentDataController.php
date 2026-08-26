@@ -2035,7 +2035,7 @@ class AgentDataController extends Controller
             try {
                 \Illuminate\Support\Facades\Mail::raw(
                     $body,
-                    fn ($m) => $m->to($notifyEmail)->subject("[{$typeLabel}] New Lead \xe2\x80\x94 {$subjectName}")
+                    fn ($m) => $m->to($notifyEmail)->from(config('mail.lead_from.address'), config('mail.lead_from.name'))->subject("[{$typeLabel}] New Lead \xe2\x80\x94 {$subjectName}")
                 );
             } catch (\Throwable $mailErr) {
                 \Illuminate\Support\Facades\Log::warning('Contact mail failed', ['err' => $mailErr->getMessage()]);
@@ -2062,7 +2062,7 @@ class AgentDataController extends Controller
             try {
                 \Illuminate\Support\Facades\Mail::raw(
                     $body,
-                    fn ($m) => $m->to($backupTo)->subject("[{$typeLabel}] New Lead \xe2\x80\x94 {$subjectName}")
+                    fn ($m) => $m->to($backupTo)->from(config('mail.lead_from.address'), config('mail.lead_from.name'))->subject("[{$typeLabel}] New Lead \xe2\x80\x94 {$subjectName}")
                 );
             } catch (\Throwable $backupMailErr) {
                 \Illuminate\Support\Facades\Log::warning('Contact backup mail failed', ['err' => $backupMailErr->getMessage()]);

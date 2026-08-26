@@ -86,7 +86,7 @@ class DailyFunnelReport extends Command
 
             try {
                 Mail::send(['html' => 'emails.funnel_report'], $data, function ($m) use ($to, $day, $data) {
-                    $m->to($to)->subject($data['siteLabel'] . ' — site funnel, ' . $day->format('D j M'));
+                    $m->to($to)->from(config('mail.lead_from.address'), config('mail.lead_from.name'))->subject($data['siteLabel'] . ' — site funnel, ' . $day->format('D j M'));
                     // text/plain alternative: readable in stripped-down clients, and less
                     // likely to be graded as bulk mail.
                     $m->getSymfonyMessage()->text($data['text']);
