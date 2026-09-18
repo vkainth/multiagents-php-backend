@@ -3760,6 +3760,7 @@ class AgentDataController extends Controller
                     : null,
                 'favicon_url'          => $settings->favicon_url ?? null,
                 'guide_name'           => $settings->guide_name ?? null,
+                'team_name'            => $settings->team_name ?? null,
                 'licensed_since'       => $settings->licensed_since ? (int) $settings->licensed_since : null,
                 'languages'            => $settings->languages ?? null,
                 'site_config'          => $settings->site_config

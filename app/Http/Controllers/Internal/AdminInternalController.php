@@ -245,6 +245,7 @@ class AdminInternalController extends Controller
             'hero_stats'         => 'nullable|string|max:8000',
             'favicon_url'        => 'nullable|string|max:500',
             'guide_name'         => 'nullable|string|max:150',
+            'team_name'          => 'nullable|string|max:120',
             'site_config'        => 'nullable|json|max:4000',
         ]);
 
@@ -350,6 +351,7 @@ class AdminInternalController extends Controller
             'hero_stats'              => 'nullable|string|max:8000',
             'area_expertise'          => 'nullable|string|max:32000',
             'guide_name'              => 'nullable|string|max:150',
+            'team_name'               => 'nullable|string|max:120',
             'achievements'            => 'nullable|string|max:8000',
             'co_agent_achievements'   => 'nullable|string|max:8000',
             'disable_sticky_bar'      => 'nullable|boolean',
@@ -370,7 +372,7 @@ class AdminInternalController extends Controller
             $settingsKeys = ['custom_domain', 'notification_email', 'notification_phone',
                              'ga4_id', 'fb_pixel_id', 'fub_enabled', 'ghl_enabled', 'social_links',
                              'subarea_whitelist', 'seo_noindex',
-                             'photo_focal_x', 'photo_focal_y', 'residencity_region', 'hero_stats', 'area_expertise', 'favicon_url', 'guide_name',
+                             'photo_focal_x', 'photo_focal_y', 'residencity_region', 'hero_stats', 'area_expertise', 'favicon_url', 'guide_name', 'team_name',
                              'achievements', 'co_agent_achievements', 'disable_sticky_bar', 'site_config'];
             $settingsFields = array_intersect_key($data, array_flip($settingsKeys));
             if (! empty($settingsFields) || ! empty($data['fub_api_key']) || ! empty($data['ghl_api_key']) || ! empty($data['lofty_api_key'])) {

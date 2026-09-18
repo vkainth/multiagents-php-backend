@@ -16,7 +16,7 @@ class AgentSettings extends Model
         'achievements', 'co_agent_achievements',
         'stripe_customer_id', 'stripe_subscription_id',
         'billing_tier', 'billing_status', 'next_billing_date', 'last_payment_at', 'billing_failed_at',
-        'licensed_since', 'languages', 'faqs_json', 'disable_sticky_bar', 'site_config',
+        'licensed_since', 'languages', 'faqs_json', 'disable_sticky_bar', 'site_config', 'team_name',
     ];
 
     protected function casts(): array
