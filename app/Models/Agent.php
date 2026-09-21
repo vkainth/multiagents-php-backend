@@ -38,6 +38,50 @@ class Agent extends Authenticatable
         return $this->hasOne(AgentSettings::class);
     }
 
+    /**
+     * Absolute public URL on this agent's own site.
+     *
+     * Lead notification emails recorded the page a lead came from as a RELATIVE path —
+     * agent_leads.source_url holds values like '/sold/R3059309' — and printed it raw:
+     * AgentLeadVerifiedJob emitted "Page: /sold/R3059309", which no mail client can turn
+     * into a working link. Same for the "View leads:" line, which had no scheme at all
+     * and pointed at website.pixilink.com rather than the agent's own domain, so even
+     * when a client did linkify it the agent landed on a host they are not signed in to.
+     *
+     * Pass-through for values that are already absolute, so this is safe to apply to a
+     * source_url of either shape.
+     */
+    public function publicUrl(?string $path = null): string
+    {
+        $base = 'https://' . ($this->settings?->custom_domain ?: 'website.pixilink.com');
+
+        // No custom domain: the agent's site lives under /agent/{slug} on the shared host.
+        if (! $this->settings?->custom_domain) {
+            $base .= '/agent/' . $this->slug;
+        }
+
+        $path = trim((string) $path);
+        if ($path === '') return $base;
+        if (preg_match('#^https?://#i', $path)) return $path;
+
+        return $base . '/' . ltrim($path, '/');
+    }
+
+    /**
+     * Absolute URL to an admin page for this agent.
+     *
+     * Separate from publicUrl() because admin is served from the HOST ROOT, never under
+     * the /agent/{slug} prefix that a domain-less agent's public pages sit behind —
+     * publicUrl('/admin/...') would produce
+     * website.pixilink.com/agent/matrix-test/admin/... , which does not exist.
+     */
+    public function adminUrl(string $path): string
+    {
+        $host = $this->settings?->custom_domain ?: 'website.pixilink.com';
+
+        return 'https://' . $host . '/' . ltrim($path, '/');
+    }
+
     public function territories(): HasMany
     {
         return $this->hasMany(AgentTerritory::class);

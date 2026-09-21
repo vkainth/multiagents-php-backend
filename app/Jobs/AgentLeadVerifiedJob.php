@@ -136,7 +136,10 @@ class AgentLeadVerifiedJob implements ShouldQueue
                         "Phone: {$lead->phone}\n" .
                         "Type: {$lead->formTypeLabel()}\n" .
                         "Listing: {$addressOrGeneral}\n" .
-                        "Page: {$lead->source_url}\n",
+                        // Absolute, clickable URL on the agent's own domain. This printed
+                        // the raw relative path ('/sold/R3059309'), which is not a link.
+                        ($lead->source_url ? "Page: " . $agent->publicUrl($lead->source_url) . "\n" : '') .
+                        "View leads: " . $agent->adminUrl('/admin/agents/' . $agent->id . '/manage/leads') . "\n",
                         function ($m) use ($notifyEmail, $lead) {
                             $m->to($notifyEmail)
                               ->from(config('mail.lead_from.address'), config('mail.lead_from.name'))

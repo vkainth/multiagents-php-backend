@@ -2026,9 +2026,17 @@ class AgentDataController extends Controller
             . "Property: " . ($propertyAddress ?? "\xe2\x80\x94") . "\n"
             . "Message:  " . ($leadMessage ?? "\xe2\x80\x94") . "\n"
             . "Source:   {$ctxSrcLabel}\n"
+            // The page the lead was on, as an absolute clickable URL. $ctxSrcLabel above
+            // is a human-readable summary ("Listing page: 1234", "/sold/R3059309") and is
+            // deliberately not a link; this line is the one an agent can actually click to
+            // see what the lead was looking at.
+            . (!empty($data['source_url']) ? "Page:     " . $agent->publicUrl($data['source_url']) . "\n" : '')
             . $notesBlock
             . str_repeat('-', 44) . "\n"
-            . "View leads: website.pixilink.com/admin/agents/{$agent->id}/leads\n";
+            // Was "website.pixilink.com/admin/..." — no scheme, so mail clients either left
+            // it as plain text or linkified it to a host the agent is not signed in to, and
+            // the path omitted the /manage segment the admin UI actually uses.
+            . "View leads: " . $agent->adminUrl("/admin/agents/{$agent->id}/manage/leads") . "\n";
 
         // Agent notification email (non-blocking — lead is already saved).
         if ($notifyEmail) {
