@@ -220,6 +220,7 @@ Route::post('user/property-view', [AgentDataController::class, 'recordPropertyVi
 // api-group limit still caps this surface; only the double-count is gone.
 Route::prefix('admin')->middleware([\App\Http\Middleware\VerifyAdminSecret::class])->group(function () {
     Route::post('auth', [AdminInternalController::class, 'auth']);
+    Route::post('auth/verify', [AdminInternalController::class, 'authVerify']);
 
     Route::get('agents', [AdminInternalController::class, 'agentsList']);
     Route::post('agents', [AdminInternalController::class, 'agentCreate']);

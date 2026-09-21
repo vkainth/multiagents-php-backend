@@ -563,6 +563,12 @@ Route::controller('App\Http\Controllers\Frontend\UserListingController')->group(
 // BC Condos & Homes internal dashboard: manage agents, leads, analytics.
 // Auth guard: 'admin' (admins table — separate from agents and public users).
 // =====================================================================
+// LEGACY BLADE ADMIN — RETIRED.
+// Registered only when LEGACY_ADMIN_ENABLED=true. See config/admin.php: it was a
+// second front door to the same admins table as the Next.js admin, which is the one
+// in use. Not registering the routes means every /admin/* path here 404s and no
+// controller is reachable. The api-internal/admin/* JSON endpoints are unaffected.
+if (config('admin.legacy_enabled')) {
 Route::prefix('admin')->name('admin.')->group(function () {
 
     // --- Guest-only ---
@@ -686,6 +692,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
         });
     });
 });
+}
 // =====================================================================
 
 Route::get('/map', function(){return redirect('https://www.bccondosandhomes.com/');});

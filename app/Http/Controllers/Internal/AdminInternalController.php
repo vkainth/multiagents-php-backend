@@ -171,6 +171,26 @@ class AdminInternalController extends Controller
             return response()->json(['error' => 'Invalid credentials'], 401);
         }
 
+        // Second factor, unless this browser is already trusted. This endpoint backs the
+        // Next.js admin — the one actually used — so without this the email code added to
+        // the Blade login protected a door nobody walks through.
+        $codes = app(\App\Services\LoginCodeService::class);
+
+        if (! $codes->deviceIsTrusted('admin', $admin->id, $req->input('device_token'))) {
+            $codes->issue('admin', $admin->id, $admin->email, $req->header('CF-Connecting-IP') ?: $req->ip());
+
+            // 403, not 200. A caller that does not understand `requires_code` must FAIL,
+            // not succeed: the previous Next.js client checks only res.ok and would have
+            // signed a session JWT from a body with no id or name — an authenticated
+            // session with an undefined identity, which is worse than a rejected login.
+            // The updated client treats 403 + requires_code as "go to the code step".
+            return response()->json([
+                'requires_code' => true,
+                'admin_id'      => $admin->id,
+                'masked_email'  => $this->maskEmailForLogin($admin->email),
+            ], 403);
+        }
+
         $admin->update(['last_login_at' => now()]);
 
         return response()->json([
@@ -178,6 +198,45 @@ class AdminInternalController extends Controller
             'name'  => $admin->name,
             'email' => $admin->email,
         ]);
+    }
+
+    /** Step two of the Next.js admin login: verify the emailed code. */
+    public function authVerify(Request $req): JsonResponse
+    {
+        $adminId = (int) $req->input('admin_id');
+        $code    = (string) $req->input('code');
+
+        if (! $adminId || $code === '') {
+            return response()->json(['error' => 'Code required'], 422);
+        }
+
+        $admin = Admin::find($adminId);
+        if (! $admin) {
+            return response()->json(['error' => 'Invalid code'], 401);
+        }
+
+        $codes = app(\App\Services\LoginCodeService::class);
+
+        if (! $codes->verify('admin', $admin->id, $code)) {
+            // One message for wrong, expired and burned — the difference tells an
+            // attacker how close they are.
+            return response()->json(['error' => 'That code is not valid or has expired'], 401);
+        }
+
+        $admin->update(['last_login_at' => now()]);
+
+        $payload = ['admin' => ['id' => $admin->id, 'name' => $admin->name, 'email' => $admin->email]];
+
+        if ($req->boolean('trust_device')) {
+            $payload['device_token'] = $codes->trustDevice(
+                'admin',
+                $admin->id,
+                $req->userAgent(),
+                $req->header('CF-Connecting-IP') ?: $req->ip(),
+            );
+        }
+
+        return response()->json($payload);
     }
 
     /**
