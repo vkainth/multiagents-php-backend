@@ -21,11 +21,20 @@ use Illuminate\Support\Facades\Log;
  */
 class StripeBilling
 {
+    /**
+     * STRIPE_SECRET_KEY first, config second.
+     *
+     * config('services.stripe.secret') reads STRIPE_SECRET, but the live key in this
+     * app's .env is STRIPE_SECRET_KEY — so that config entry resolves to null. A
+     * config() default does not help: the key EXISTS in config with a null value, so
+     * Arr::get returns null rather than falling back. BillingController has always read
+     * the env var directly, which is why it worked and this did not.
+     */
     private function key(): string
     {
-        $key = (string) config('services.stripe.secret', env('STRIPE_SECRET_KEY'));
+        $key = (string) (env('STRIPE_SECRET_KEY') ?: config('services.stripe.secret'));
         if ($key === '') {
-            throw new \RuntimeException('STRIPE_SECRET_KEY is not configured.');
+            throw new \RuntimeException('Stripe secret key is not configured (STRIPE_SECRET_KEY).');
         }
         return $key;
     }
