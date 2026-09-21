@@ -749,10 +749,67 @@ class AdminInternalController extends Controller
             return response()->json(["error" => "Invalid credentials"], 401);
         }
 
+        // Password is correct. Now the second factor — unless this browser is already
+        // trusted. Returning the session payload here without a code would make the
+        // whole thing optional from the caller's point of view.
+        $codes = app(\App\Services\LoginCodeService::class);
+
+        if (! $codes->deviceIsTrusted("agent", $agent->id, $req->input("device_token"))) {
+            $codes->issue("agent", $agent->id, $agent->email, $req->header("CF-Connecting-IP") ?: $req->ip());
+
+            return response()->json([
+                "requires_code" => true,
+                "agent_id"      => $agent->id,
+                "masked_email"  => $this->maskEmailForLogin($agent->email),
+            ]);
+        }
+
+        return response()->json($this->agentPortalSessionPayload($agent));
+    }
+
+    /** Step two of portal login: verify the emailed code. */
+    public function agentPortalAuthVerify(\Illuminate\Http\Request $req): JsonResponse
+    {
+        $agentId = (int) $req->input("agent_id");
+        $code    = (string) $req->input("code");
+
+        if (! $agentId || $code === "") {
+            return response()->json(["error" => "Code required"], 422);
+        }
+
+        $agent = Agent::where("id", $agentId)->where("status", "active")->first();
+        if (! $agent) {
+            return response()->json(["error" => "Invalid code"], 401);
+        }
+
+        $codes = app(\App\Services\LoginCodeService::class);
+
+        if (! $codes->verify("agent", $agent->id, $code)) {
+            // Same message for a wrong code, an expired one and a burned one: the
+            // difference tells an attacker how close they are.
+            return response()->json(["error" => "That code is not valid or has expired"], 401);
+        }
+
+        $payload = ["agent" => $this->agentPortalSessionPayload($agent)];
+
+        if ($req->boolean("trust_device")) {
+            $payload["device_token"] = $codes->trustDevice(
+                "agent",
+                $agent->id,
+                $req->userAgent(),
+                $req->header("CF-Connecting-IP") ?: $req->ip(),
+            );
+        }
+
+        return response()->json($payload);
+    }
+
+    private function agentPortalSessionPayload(Agent $agent): array
+    {
         $settings = \Illuminate\Support\Facades\DB::table("agent_settings")
             ->where("agent_id", $agent->id)->first();
 
-        return response()->json([
+        return [
             "id"          => $agent->id,
             "name"        => $agent->name,
             "email"       => $agent->email,
@@ -760,7 +817,20 @@ class AdminInternalController extends Controller
             "theme_color" => $agent->theme_color ?? null,
             "theme_slug"  => $agent->theme_slug ?? null,
             "domain"      => $settings->custom_domain ?? null,
-        ]);
+        ];
+    }
+
+    /** n**@domain.com — enough to recognise, not enough to harvest. */
+    private function maskEmailForLogin(string $email): string
+    {
+        [$user, $domain] = array_pad(explode("@", $email, 2), 2, "");
+        if ($user === "" || $domain === "") return "your email";
+
+        $visible = mb_strlen($user) <= 2
+            ? mb_substr($user, 0, 1)
+            : mb_substr($user, 0, 1) . str_repeat("*", max(1, mb_strlen($user) - 2)) . mb_substr($user, -1);
+
+        return $visible . "@" . $domain;
     }
 
     /**

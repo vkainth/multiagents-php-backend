@@ -283,6 +283,7 @@ Route::prefix('admin')->middleware([\App\Http\Middleware\VerifyAdminSecret::clas
 // 429'd this surface whenever total api-internal traffic passed 120/min.
 Route::prefix('agent-portal')->middleware([\App\Http\Middleware\VerifyAdminSecret::class, 'throttle:agent-portal'])->group(function () {
     Route::post('auth',                           [AdminInternalController::class, 'agentPortalAuth']);
+    Route::post("auth/verify",                    [AdminInternalController::class, "agentPortalAuthVerify"]);
     Route::get('{id}/dashboard',                  [AdminInternalController::class, 'agentPortalDashboard'])->where('id', '[0-9]+');
     Route::get('{id}/leads',                      [AdminInternalController::class, 'agentPortalLeads'])->where('id', '[0-9]+');
     Route::get('{id}/profile',                    [AdminInternalController::class, 'agentPortalProfile'])->where('id', '[0-9]+');
