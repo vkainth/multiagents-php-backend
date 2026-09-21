@@ -24,6 +24,12 @@ return [
     'gst_number'      => env('INVOICE_GST_NUMBER', '856225727RT0001'),
 
     /*
+    | Where billing problems are reported. A declined card that is only written to a
+    | log is a payment that quietly stops happening; somebody has to be told.
+    */
+    'alert_email'     => env('INVOICE_ALERT_EMAIL', 'varinder@pixilink.com'),
+
+    /*
     |--------------------------------------------------------------------------
     | Tax
     |--------------------------------------------------------------------------

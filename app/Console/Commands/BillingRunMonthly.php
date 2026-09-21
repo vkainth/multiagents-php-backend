@@ -210,29 +210,42 @@ class BillingRunMonthly extends Command
             }
 
             $this->warn('    charge not completed: ' . ($intent['status'] ?? 'unknown'));
+            $this->alertOperator($invoice, 'Charge not completed: ' . ($intent['status'] ?? 'unknown'));
         } catch (StripeBillingException $e) {
             $this->error('    charge failed: ' . $e->getMessage());
             Log::warning('Invoice ' . $invoice->invoice_number . ' charge failed: ' . $e->getMessage());
 
-            // No card on file is not a decline — it means we never asked for one. Send
-            // the invoice WITH a self-serve card link so the agent can fix it themselves,
-            // instead of a dead end that routes every case back through us by hand.
-            if (in_array($e->stripeCode, ['no_card', 'no_customer'], true)) {
-                $payUrl = null;
-                try {
-                    $payer  = $invoice->billTo()->with('settings')->first();
-                    $payUrl = $payer ? $stripe->cardLinkFor($payer) : null;
-                } catch (\Throwable $linkErr) {
-                    Log::warning('Could not build card link for ' . $invoice->invoice_number . ': ' . $linkErr->getMessage());
-                }
+            // A DECLINE must not be silent. Previously only 'no card' produced an email,
+            // so a declined or expired card meant the customer heard nothing, we heard
+            // nothing, and the invoice simply sat there — the worst failure mode a
+            // billing system has, because everyone believes it worked.
+            $this->alertOperator($invoice, $e->getMessage());
 
-                $this->emailInvoice($invoice, $pdf, paid: false, payUrl: $payUrl);
+            // Every failure now tells the customer something actionable, not just the
+            // "no card" case. A card link is included whenever they have no usable card —
+            // which is also true after a decline if the stored card has been removed.
+            $payUrl = null;
+            try {
+                $payer = $invoice->billTo()->with('settings')->first();
+                if ($payer && ! $stripe->hasCard($payer)) {
+                    $payUrl = $stripe->cardLinkFor($payer);
+                }
+            } catch (\Throwable $linkErr) {
+                Log::warning('Could not build card link for ' . $invoice->invoice_number . ': ' . $linkErr->getMessage());
             }
+
+            $this->emailInvoice(
+                $invoice,
+                $pdf,
+                paid: false,
+                payUrl: $payUrl,
+                problem: in_array($e->stripeCode, ['no_card', 'no_customer'], true) ? 'no_card' : 'declined',
+            );
         }
     }
 
     /** Email the invoice PDF: a receipt when paid, a request when not. */
-    private function emailInvoice(Invoice $invoice, InvoicePdf $pdf, bool $paid, ?string $payUrl = null): void
+    private function emailInvoice(Invoice $invoice, InvoicePdf $pdf, bool $paid, ?string $payUrl = null, ?string $problem = null): void
     {
         $to = $invoice->bill_to_email;
         if (! $to) {
@@ -253,13 +266,7 @@ class BillingRunMonthly extends Command
                 : "Your invoice {$invoice->invoice_number} is attached.\n\n"
                   . 'Amount due: ' . Invoice::formatMoney($invoice->balanceCents()) . " (includes {$invoice->tax_label})\n"
                   . ($invoice->period_start ? 'Period: ' . $invoice->period_start->format('M j') . ' – ' . $invoice->period_end->format('M j, Y') . "\n" : '')
-                  . ($payUrl
-                      ? "\nThere is no card on file for this account. Add one here and the invoice will be\n"
-                        . "charged automatically — it takes about a minute, and the page is hosted by Stripe:\n\n"
-                        . "{$payUrl}\n\n"
-                        . "This link is valid for 45 days.\n"
-                      : "\nWe were unable to charge the card on file. Please reply to this email and we\n"
-                        . "will sort it out.\n")
+                  . $this->problemText($problem, $payUrl)
                   . "\n{$company}\n";
 
             Mail::raw($body, function ($m) use ($to, $invoice, $bytes, $paid, $pdf) {
@@ -285,6 +292,63 @@ class BillingRunMonthly extends Command
      * February rather than silently skipping it, and subMonthNoOverflow avoids the
      * classic March-31 minus one month lands on March-3 bug.
      */
+    /**
+     * The explanation a customer actually needs, per failure mode.
+     *
+     * A decline and "we never had a card" are different problems with different fixes,
+     * and telling someone their card was declined when we never asked for one is the
+     * kind of message that generates a phone call rather than a payment.
+     */
+    private function problemText(?string $problem, ?string $payUrl): string
+    {
+        if ($problem === 'declined') {
+            return "\nWe tried to charge the card on file and it was declined. That is usually an\n"
+                 . "expired card or a bank block rather than anything wrong with the account.\n"
+                 . ($payUrl
+                     ? "\nYou can add a different card here:\n\n{$payUrl}\n\nThis link is valid for 45 days.\n"
+                     : "\nPlease reply to this email and we will send a secure link to update it.\n");
+        }
+
+        if ($payUrl) {
+            return "\nThere is no card on file for this account. Add one here and the invoice will be\n"
+                 . "charged automatically — it takes about a minute, and the page is hosted by Stripe:\n\n"
+                 . "{$payUrl}\n\nThis link is valid for 45 days.\n";
+        }
+
+        return "\nThis will be charged automatically to the card on file.\n";
+    }
+
+    /**
+     * Tell the operator when a charge fails.
+     *
+     * Without this a decline exists only in a log nobody reads, and the first sign of
+     * trouble is noticing months later that someone stopped paying. Failure to collect
+     * money should be noisy.
+     */
+    private function alertOperator(Invoice $invoice, string $reason): void
+    {
+        $to = config('invoicing.alert_email') ?: config('invoicing.company_email');
+        if (! $to) {
+            return;
+        }
+
+        try {
+            Mail::raw(
+                "Billing problem on invoice {$invoice->invoice_number}.\n\n"
+                . 'Site:    ' . ($invoice->agent?->slug ?? '?') . "\n"
+                . "Bill to: {$invoice->bill_to_name} <{$invoice->bill_to_email}>\n"
+                . 'Amount:  ' . Invoice::formatMoney($invoice->balanceCents()) . "\n"
+                . "Reason:  {$reason}\n\n"
+                . "The customer has been emailed. Nothing has been charged.\n",
+                fn ($m) => $m->to($to)
+                    ->from(config('mail.lead_from.address'), config('invoicing.company_name'))
+                    ->subject('Billing: ' . $invoice->invoice_number . ' — ' . $reason)
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Operator billing alert failed: ' . $e->getMessage());
+        }
+    }
+
     private function periodStartFor(int $anchorDay, Carbon $ref): Carbon
     {
         $ref = $ref->copy()->startOfDay();
