@@ -569,6 +569,14 @@ Route::prefix('admin')->name('admin.')->group(function () {
     Route::middleware(\App\Http\Middleware\RedirectIfAdminAuthenticated::class)->group(function () {
         Route::get('/login',  [\App\Http\Controllers\Admin\AuthController::class, 'showLogin'])->name('login');
         Route::post('/login', [\App\Http\Controllers\Admin\AuthController::class, 'login'])->name('login.submit');
+
+        // Second factor. These sit in the guest-only group because the admin is NOT
+        // authenticated yet at this point — the password step deliberately logs the
+        // guard back out and holds the identity in the session, so a correct password
+        // alone cannot reach any admin route.
+        Route::get('/login/verify',  [\App\Http\Controllers\Admin\AuthController::class, 'showVerify'])->name('login.verify');
+        Route::post('/login/verify', [\App\Http\Controllers\Admin\AuthController::class, 'verify'])->name('login.verify.submit');
+        Route::post('/login/resend', [\App\Http\Controllers\Admin\AuthController::class, 'resend'])->name('login.resend');
     });
 
     // --- Authenticated admin routes ---
