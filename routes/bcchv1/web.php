@@ -639,6 +639,27 @@ Route::prefix('admin')->name('admin.')->group(function () {
             Route::post('/generate-pulse',        'generatePulse')->name('generatePulse');
         });
 
+        // First-party invoicing. Separate from the Stripe-subscription screens below,
+        // which are being retired: we issue our own invoices and use Stripe only to
+        // charge the stored card.
+        Route::prefix('invoices')->name('invoices.')->controller(\App\Http\Controllers\Admin\InvoiceController::class)->group(function () {
+            Route::get('/',                    'index')->name('index');
+            Route::get('/tax',                 'taxReport')->name('tax');
+            Route::get('/tax/export',          'taxExport')->name('tax.export');
+            Route::get('/{invoice}',           'show')->name('show')->where('invoice', '[0-9]+');
+            Route::get('/{invoice}/pdf',       'pdf')->name('pdf')->where('invoice', '[0-9]+');
+            Route::post('/{invoice}/finalise', 'finalise')->name('finalise')->where('invoice', '[0-9]+');
+            Route::post('/{invoice}/void',     'void')->name('void')->where('invoice', '[0-9]+');
+            Route::post('/{invoice}/paid',     'markPaid')->name('paid')->where('invoice', '[0-9]+');
+            Route::post('/{invoice}/charge',   'charge')->name('charge')->where('invoice', '[0-9]+');
+
+            Route::get('/addons/{agent}',      'addons')->name('addons')->where('agent', '[0-9]+');
+            Route::post('/addons/{agent}',     'storeAddon')->name('addons.store')->where('agent', '[0-9]+');
+            Route::delete('/addons/{addon}',   'destroyAddon')->name('addons.destroy')->where('addon', '[0-9]+');
+
+            Route::post('/card-link/{agent}',  'cardLink')->name('card-link')->where('agent', '[0-9]+');
+        });
+
         // Billing management (Stripe subscriptions)
         Route::prefix('billing')->name('billing.')->controller(\App\Http\Controllers\Admin\BillingController::class)->group(function () {
             Route::get('/',                               'index')->name('index');

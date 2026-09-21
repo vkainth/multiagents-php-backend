@@ -18,8 +18,9 @@ return [
     |
     */
     'company_name'    => env('INVOICE_COMPANY_NAME', 'Pixilink Solutions'),
-    'company_address' => env('INVOICE_COMPANY_ADDRESS', ''),
-    'company_email'   => env('INVOICE_COMPANY_EMAIL', 'info@pixilink.com'),
+    'company_phone'   => env('INVOICE_COMPANY_PHONE', '+1 604-639-5434'),
+    'company_address' => env('INVOICE_COMPANY_ADDRESS', "151 West Hastings Street\nVancouver British Columbia V6B 1H4\nCanada"),
+    'company_email'   => env('INVOICE_COMPANY_EMAIL', 'billing@pixilink.com'),
     'gst_number'      => env('INVOICE_GST_NUMBER', ''),
 
     /*
@@ -51,7 +52,7 @@ return [
     | three unrelated sequences and no way to see at a glance that the set is complete.
     |
     */
-    'number_prefix' => env('INVOICE_NUMBER_PREFIX', 'PXL'),
+    'number_prefix' => env('INVOICE_NUMBER_PREFIX', 'PXWEB'),
     'number_pad'    => 4,
 
     /*

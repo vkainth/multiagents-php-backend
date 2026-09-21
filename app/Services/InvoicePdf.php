@@ -16,9 +16,16 @@ class InvoicePdf
         $site = $invoice->agent?->settings?->custom_domain
             ?: ($invoice->agent?->slug ? 'Site: ' . $invoice->agent->slug : null);
 
+        // The tax base is NOT the subtotal whenever a line is non-taxable (a discount or
+        // a processing fee), so it is computed here and printed, the way the reference
+        // invoice states "GST (5% on CA$675.00)" against a CA$605.90 subtotal.
+        $taxableBase = $invoice->lines->sum(fn ($l) => $l->taxable ? (int) $l->amount_cents : 0);
+
         $html = view('invoices.pdf', [
-            'invoice' => $invoice,
-            'site'    => $site,
+            'invoice'     => $invoice,
+            'site'        => $site,
+            'taxableBase' => $taxableBase,
+            'logo'        => $this->logoPath(),
         ])->render();
 
         $options = new Options();
@@ -28,6 +35,11 @@ class InvoicePdf
         $options->set('isRemoteEnabled', false);
         $options->set('isHtml5ParserEnabled', true);
         $options->set('defaultFont', 'DejaVu Sans');
+        // dompdf sandboxes local file access to its chroot and renders a broken-image
+        // box for anything outside it — which is why the logo would not load. Scoped to
+        // public/ rather than the app root: the renderer has no business reading .env or
+        // storage/ just to place a letterhead.
+        $options->setChroot(public_path());
 
         $dompdf = new Dompdf($options);
         $dompdf->loadHtml($html, 'UTF-8');
@@ -37,7 +49,21 @@ class InvoicePdf
         return $dompdf->output();
     }
 
-    /** Filename an agent sees when downloading: PXL-2026-0001.pdf */
+    /**
+     * Absolute filesystem path to the logo.
+     *
+     * A local path, not a URL: isRemoteEnabled is off, so dompdf will not fetch over the
+     * network, and it should not — an invoice must render identically whether or not the
+     * web server is reachable at the moment it is generated.
+     */
+    private function logoPath(): ?string
+    {
+        $path = public_path('frontend/images/pixilink-logo.png');
+
+        return is_readable($path) ? $path : null;
+    }
+
+    /** Filename an agent sees when downloading: PXWEB-2026-0001.pdf */
     public function filename(Invoice $invoice): string
     {
         return $invoice->invoice_number . '.pdf';

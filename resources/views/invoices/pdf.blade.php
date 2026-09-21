@@ -3,160 +3,204 @@
 <head>
 <meta charset="utf-8">
 <style>
-  /* dompdf supports a limited CSS subset — tables and simple block layout only.
-     No flexbox, no grid: layout here is deliberately table-based for that reason. */
-  @page { margin: 34px 40px; }
-  body { font-family: DejaVu Sans, sans-serif; font-size: 11px; color: #1f2933; line-height: 1.5; }
-  .head-table { width: 100%; border-collapse: collapse; margin-bottom: 26px; }
-  .head-table td { vertical-align: top; }
-  .company-name { font-size: 17px; font-weight: bold; color: #111827; }
-  .muted { color: #6b7280; }
-  .doc-title { font-size: 26px; font-weight: bold; letter-spacing: 1px; color: #111827; text-align: right; }
-  .meta { text-align: right; margin-top: 6px; }
-  .meta strong { color: #111827; }
-  .status { display: inline-block; padding: 3px 10px; border-radius: 3px; font-size: 10px;
-            font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
-  .status-paid { background: #dcfce7; color: #166534; }
-  .status-open { background: #fef3c7; color: #92400e; }
-  .status-void { background: #f3f4f6; color: #6b7280; }
-  .status-draft { background: #e0e7ff; color: #3730a3; }
-  .section-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px;
-                   color: #6b7280; font-weight: bold; margin-bottom: 4px; }
-  table.lines { width: 100%; border-collapse: collapse; margin-top: 8px; }
-  table.lines th { text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px;
-                   color: #6b7280; border-bottom: 1.5px solid #d1d5db; padding: 7px 6px; }
-  table.lines td { padding: 9px 6px; border-bottom: 1px solid #eef1f4; vertical-align: top; }
-  .num { text-align: right; white-space: nowrap; }
-  .totals { width: 44%; margin-left: 56%; border-collapse: collapse; margin-top: 14px; }
-  .totals td { padding: 5px 6px; }
-  .totals .label { color: #6b7280; }
-  .totals .grand td { border-top: 1.5px solid #111827; font-size: 14px; font-weight: bold; color: #111827; padding-top: 9px; }
-  .footer { margin-top: 30px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 10px; color: #6b7280; }
-  .period { font-size: 9px; color: #9aa3ad; }
+  /* Layout mirrors the existing Pixilink/Stripe invoice (DHXKSBBB-0001) so invoices
+     issued by this system are visually continuous with the ones already sent.
+     dompdf supports a limited CSS subset — no flexbox or grid — so the structure is
+     table-based throughout, which is also what keeps columns aligned across pages. */
+  @page { margin: 0; }
+  body { font-family: DejaVu Sans, sans-serif; font-size: 10.5px; color: #1a1f24; margin: 0; }
+
+  .accent-bar { height: 7px; background: #1f7ac0; width: 100%; }
+  .page { padding: 40px 52px 0; }
+
+  h1.title { font-size: 30px; font-weight: bold; margin: 8px 0 22px; letter-spacing: -0.5px; }
+
+  table.meta { border-collapse: collapse; margin-bottom: 28px; }
+  table.meta td { padding: 2px 0; font-size: 10.5px; vertical-align: top; }
+  table.meta td.label { font-weight: bold; padding-right: 22px; white-space: nowrap; }
+
+  table.parties { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+  table.parties td { vertical-align: top; width: 50%; padding-right: 20px; }
+  .party-name { font-weight: bold; margin-bottom: 3px; }
+  .party-line { line-height: 1.55; }
+
+  .headline { font-size: 19px; font-weight: bold; margin: 4px 0 6px; letter-spacing: -0.3px; }
+  .paylink { color: #3b5bdb; font-size: 11px; margin-bottom: 26px; }
+
+  table.lines { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  table.lines th { font-size: 9.5px; font-weight: normal; color: #4a5560;
+                   border-bottom: 1px solid #1a1f24; padding: 0 6px 6px; }
+  table.lines th.l, table.lines td.l { text-align: left; }
+  table.lines th.r, table.lines td.r { text-align: right; white-space: nowrap; }
+  table.lines th.c, table.lines td.c { text-align: center; white-space: nowrap; }
+  table.lines td { padding: 13px 6px; border-bottom: 1px solid #e6e9ec; vertical-align: top; }
+  .line-period { font-size: 9px; color: #8a949e; margin-top: 2px; }
+
+  table.totals { width: 52%; margin-left: 48%; border-collapse: collapse; margin-top: 2px; }
+  table.totals td { padding: 6px 6px; border-bottom: 1px solid #e6e9ec; font-size: 10.5px; }
+  table.totals td.r { text-align: right; white-space: nowrap; }
+  table.totals tr.due td { font-weight: bold; border-bottom: none; }
+
+  .footer { position: fixed; bottom: 26px; left: 52px; right: 52px;
+            border-top: 1px solid #e6e9ec; padding-top: 8px;
+            font-size: 9px; color: #8a949e; }
+  .footer .pg { text-align: right; }
+  /* CSS counters, not dompdf's <script type="text/php"> hook: that hook requires
+     isPhpEnabled, which turns the PDF renderer into a PHP execution surface — not a
+     switch worth flipping inside the thing that renders financial documents.
+     counter(pages) is unsupported by dompdf and renders 0, so only the page number
+     is shown rather than a wrong "of N". */
+  .footer .pg:after { content: "Page " counter(page); }
+  .gst-line { margin-top: 6px; }
 </style>
 </head>
 <body>
 
-<table class="head-table">
-  <tr>
-    <td style="width:56%;">
-      <div class="company-name">{{ $invoice->company_name ?: config('invoicing.company_name') }}</div>
-      @if($invoice->company_address)
-        <div class="muted">{!! nl2br(e($invoice->company_address)) !!}</div>
-      @endif
-      @if($invoice->gst_number)
-        {{-- Required on a Canadian tax invoice: without the supplier's registration
-             number the customer cannot claim the input tax credit. --}}
-        <div class="muted" style="margin-top:5px;">GST/HST No. {{ $invoice->gst_number }}</div>
-      @endif
-    </td>
-    <td style="width:44%;">
-      <div class="doc-title">INVOICE</div>
-      <div class="meta">
-        <div><strong>{{ $invoice->invoice_number }}</strong></div>
-        <div class="muted">Issued {{ $invoice->issue_date?->format('M j, Y') }}</div>
-        @if($invoice->due_date)
-          <div class="muted">
-            {{ $invoice->due_date->lte($invoice->issue_date) ? 'Due on receipt' : 'Due ' . $invoice->due_date->format('M j, Y') }}
-          </div>
-        @endif
-        <div style="margin-top:7px;">
-          <span class="status status-{{ $invoice->status }}">{{ $invoice->status }}</span>
-        </div>
-      </div>
-    </td>
-  </tr>
-</table>
+<div class="accent-bar"></div>
 
-<table class="head-table">
-  <tr>
-    <td style="width:56%;">
-      <div class="section-label">Bill To</div>
-      <div><strong>{{ $invoice->bill_to_name }}</strong></div>
-      @if($invoice->bill_to_email)<div class="muted">{{ $invoice->bill_to_email }}</div>@endif
-    </td>
-    <td style="width:44%;">
-      <div class="section-label">Service Period</div>
-      <div>
-        @if($invoice->period_start && $invoice->period_end)
-          {{ $invoice->period_start->format('M j, Y') }} &ndash; {{ $invoice->period_end->format('M j, Y') }}
-        @else
-          &mdash;
-        @endif
-      </div>
-      @if($site)
-        <div class="muted" style="margin-top:4px;">{{ $site }}</div>
-      @endif
-    </td>
-  </tr>
-</table>
+<div class="page">
 
-<table class="lines">
-  <thead>
+  <table style="width:100%; border-collapse:collapse;">
     <tr>
-      <th style="width:58%;">Description</th>
-      <th class="num" style="width:8%;">Qty</th>
-      <th class="num" style="width:17%;">Unit</th>
-      <th class="num" style="width:17%;">Amount</th>
+      <td style="vertical-align:top;"><h1 class="title">Invoice</h1></td>
+      <td style="vertical-align:top; text-align:right; width:190px;">
+        @if($logo)
+          <img src="{{ $logo }}" style="width:150px;">
+        @endif
+      </td>
     </tr>
-  </thead>
-  <tbody>
-    @foreach($invoice->lines as $line)
-      <tr>
-        <td>
-          {{ $line->description }}
-          @if($line->period_start && $line->period_end)
-            <div class="period">{{ $line->period_start->format('M j, Y') }} &ndash; {{ $line->period_end->format('M j, Y') }}</div>
+  </table>
+
+  <table class="meta">
+    <tr><td class="label">Invoice number</td><td>{{ $invoice->invoice_number }}</td></tr>
+    <tr><td class="label">Date of issue</td><td>{{ $invoice->issue_date?->format('F j, Y') }}</td></tr>
+    <tr><td class="label">Date due</td><td>{{ ($invoice->due_date ?: $invoice->issue_date)?->format('F j, Y') }}</td></tr>
+    @if($invoice->period_start && $invoice->period_end)
+      <tr><td class="label">Service period</td><td>{{ $invoice->period_start->format('F j, Y') }} – {{ $invoice->period_end->format('F j, Y') }}</td></tr>
+    @endif
+  </table>
+
+  <table class="parties">
+    <tr>
+      <td>
+        <div class="party-name">{{ $invoice->company_name ?: config('invoicing.company_name') }}</div>
+        <div class="party-line">
+          @if($invoice->company_address){!! nl2br(e($invoice->company_address)) !!}<br>@endif
+          @if(config('invoicing.company_phone')){{ config('invoicing.company_phone') }}<br>@endif
+          {{ config('invoicing.company_email') }}
+          {{-- Required on a Canadian tax invoice: without the supplier's registration
+               number the customer cannot claim the input tax credit. --}}
+          @if($invoice->gst_number)
+            <div class="gst-line">GST/HST No. {{ $invoice->gst_number }}</div>
           @endif
-          @unless($line->taxable)
-            <div class="period">Not subject to {{ $invoice->tax_label }}</div>
-          @endunless
-        </td>
-        <td class="num">{{ $line->quantity }}</td>
-        <td class="num">${{ number_format($line->unit_amount_cents / 100, 2) }}</td>
-        <td class="num">${{ number_format($line->amount_cents / 100, 2) }}</td>
-      </tr>
-    @endforeach
-  </tbody>
-</table>
+        </div>
+      </td>
+      <td>
+        <div class="party-name">Bill to</div>
+        <div class="party-line">
+          {{ $invoice->bill_to_name }}<br>
+          @if($invoice->bill_to_email){{ $invoice->bill_to_email }}@endif
+          @if($site)<br>{{ $site }}@endif
+        </div>
+      </td>
+    </tr>
+  </table>
 
-<table class="totals">
-  <tr>
-    <td class="label">Subtotal</td>
-    <td class="num">${{ number_format($invoice->subtotal_cents / 100, 2) }}</td>
-  </tr>
-  <tr>
-    <td class="label">{{ $invoice->tax_label }} ({{ rtrim(rtrim(number_format((float) $invoice->tax_rate_percent, 2), '0'), '.') }}%)</td>
-    <td class="num">${{ number_format($invoice->tax_cents / 100, 2) }}</td>
-  </tr>
-  <tr class="grand">
-    <td>Total {{ $invoice->currency }}</td>
-    <td class="num">${{ number_format($invoice->total_cents / 100, 2) }}</td>
-  </tr>
-  @if($invoice->amount_paid_cents > 0)
+  @php
+    $cur = fn ($cents) => 'CA$' . number_format($cents / 100, 2);
+    $due = $invoice->balanceCents();
+  @endphp
+
+  <div class="headline">
+    @if($invoice->isVoid())
+      {{ $cur($invoice->total_cents) }} — voided
+    @elseif($invoice->isPaid())
+      {{ $cur($invoice->total_cents) }} paid{{ $invoice->paid_at ? ' on ' . $invoice->paid_at->format('F j, Y') : '' }}
+    @else
+      {{ $cur($due) }} due {{ ($invoice->due_date ?: $invoice->issue_date)?->format('F j, Y') }}
+    @endif
+  </div>
+  @unless($invoice->isPaid() || $invoice->isVoid())
+    <div class="paylink">Charged automatically to the card on file.</div>
+  @else
+    <div class="paylink">&nbsp;</div>
+  @endunless
+
+  <table class="lines">
+    <thead>
+      <tr>
+        <th class="l" style="width:46%;">Description</th>
+        <th class="c" style="width:8%;">Qty</th>
+        <th class="r" style="width:17%;">Unit price</th>
+        <th class="c" style="width:12%;">Tax</th>
+        <th class="r" style="width:17%;">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      @foreach($invoice->lines as $line)
+        <tr>
+          <td class="l">
+            {{ $line->description }}
+            @if($line->period_start && $line->period_end)
+              <div class="line-period">{{ $line->period_start->format('M j, Y') }} – {{ $line->period_end->format('M j, Y') }}</div>
+            @endif
+          </td>
+          <td class="c">{{ $line->quantity }}</td>
+          <td class="r">{{ $cur($line->unit_amount_cents) }}</td>
+          {{-- Blank rather than 0% for a non-taxable line, matching the reference
+               invoice where the discount and the processing fee carry no tax mark. --}}
+          <td class="c">{{ $line->taxable ? rtrim(rtrim(number_format((float) $invoice->tax_rate_percent, 2), '0'), '.') . '%' : '' }}</td>
+          <td class="r">{{ $cur($line->amount_cents) }}</td>
+        </tr>
+      @endforeach
+    </tbody>
+  </table>
+
+  <table class="totals">
     <tr>
-      <td class="label">Paid{{ $invoice->paid_at ? ' ' . $invoice->paid_at->format('M j, Y') : '' }}</td>
-      <td class="num">&minus;${{ number_format($invoice->amount_paid_cents / 100, 2) }}</td>
+      <td>Subtotal</td>
+      <td class="r">{{ $cur($invoice->subtotal_cents) }}</td>
     </tr>
     <tr>
-      <td class="label"><strong>Balance</strong></td>
-      <td class="num"><strong>${{ number_format($invoice->balanceCents() / 100, 2) }}</strong></td>
+      <td>Total excluding tax</td>
+      <td class="r">{{ $cur($invoice->subtotal_cents) }}</td>
     </tr>
+    <tr>
+      {{-- States the base the tax was actually charged on, which is not the subtotal
+           whenever any line is non-taxable. --}}
+      <td>{{ $invoice->tax_label }} ({{ rtrim(rtrim(number_format((float) $invoice->tax_rate_percent, 2), '0'), '.') }}% on {{ $cur($taxableBase) }})</td>
+      <td class="r">{{ $cur($invoice->tax_cents) }}</td>
+    </tr>
+    <tr>
+      <td>Total</td>
+      <td class="r">{{ $cur($invoice->total_cents) }}</td>
+    </tr>
+    @if($invoice->amount_paid_cents > 0)
+      <tr>
+        <td>Amount paid</td>
+        <td class="r">-{{ $cur($invoice->amount_paid_cents) }}</td>
+      </tr>
+    @endif
+    <tr class="due">
+      <td>Amount due</td>
+      <td class="r">{{ $cur($invoice->isVoid() ? 0 : $due) }}</td>
+    </tr>
+  </table>
+
+  @if($invoice->isVoid())
+    <p style="margin-top:22px;color:#8a949e;font-size:10px;">
+      This invoice was voided{{ $invoice->void_reason ? ' — ' . $invoice->void_reason : '' }}. No payment is owed.
+    </p>
   @endif
-</table>
+
+  @if($invoice->notes)
+    <p style="margin-top:22px;font-size:10px;color:#4a5560;">{{ $invoice->notes }}</p>
+  @endif
+
+</div>
 
 <div class="footer">
-  @if($invoice->status === 'paid')
-    Paid in full{{ $invoice->payment_method ? ' by ' . str_replace('_', ' ', $invoice->payment_method) : '' }}. Thank you.
-  @elseif($invoice->status === 'void')
-    This invoice has been voided{{ $invoice->void_reason ? ': ' . $invoice->void_reason : '.' }}
-  @else
-    Payable on receipt. Charged automatically to the card on file.
-  @endif
-  @if($invoice->notes)
-    <div style="margin-top:6px;">{{ $invoice->notes }}</div>
-  @endif
-  <div style="margin-top:8px;">Questions? {{ config('invoicing.company_email') }}</div>
+  <div class="pg"></div>
 </div>
 
 </body>
