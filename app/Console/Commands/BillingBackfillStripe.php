@@ -29,7 +29,10 @@ class BillingBackfillStripe extends Command
 {
     protected $signature = 'billing:backfill-stripe
         {--dry-run : Show what would be imported without writing anything}
-        {--period= : Service period for a single-line setup/hosting invoice, YYYY-MM}';
+        {--period= : Service period for a single-line setup/hosting invoice, YYYY-MM}
+        {--invoice=* : Import ONLY these Stripe invoice numbers (repeatable)}
+        {--agent= : Agent slug the --invoice values belong to}
+        {--customer=* : Extra Stripe customer ids to search (for records not linked by email)}';
 
     protected $description = 'Import paid Stripe invoices into the invoice ledger';
 
@@ -46,19 +49,59 @@ class BillingBackfillStripe extends Command
         $imported = 0;
         $skipped  = 0;
 
-        foreach (DB::table('agent_settings')->whereNotNull('stripe_customer_id')->get() as $settings) {
+        foreach (DB::table('agent_settings')->get() as $settings) {
             $agent = DB::table('agents')->where('id', $settings->agent_id)->first();
             if (! $agent) continue;
 
-            $res = Http::withToken($key)->timeout(20)->get('https://api.stripe.com/v1/invoices', [
-                'customer' => $settings->stripe_customer_id,
-                'status'   => 'paid',
-                'limit'    => 100,
-            ]);
+            // Look across EVERY Stripe customer record for this agent, not just the id in
+            // agent_settings. Randy and Nav each have two: an old one going back to 2016
+            // that their setup invoice was actually paid on, and a newer one created by
+            // the subscription flow that has never been charged. Scanning only the
+            // configured id silently missed $5,250 of collected revenue — the failure
+            // mode is under-reporting income, which is the wrong way to be wrong.
+            // Explicit mode widens the search by email so a payment on a duplicate
+            // customer record can be found. Automatic mode does NOT: this Stripe
+            // account also bills photography, feature sheets and other Pixilink
+            // products to the same people, and sweeping every invoice for an email
+            // would import that unrelated revenue as website income — inflating both
+            // the ledger and the GST return.
+            $wanted = (array) $this->option('invoice');
+            $agentFilter = $this->option('agent');
 
-            foreach (($res->json()['data'] ?? []) as $si) {
+            if ($agentFilter && $agent->slug !== $agentFilter) { continue; }
+
+            $customerIds = $wanted
+                ? array_unique(array_merge(
+                    $this->customerIdsFor($key, $settings, $agent),
+                    // Nav's setup invoice sits on a customer under nav@suburbia.ca
+                    // while our record holds hello@suburbia.ca, so email lookup alone
+                    // cannot reach it. Naming the customer explicitly is safer than
+                    // widening the email search and hoovering up other product lines.
+                    (array) $this->option('customer'),
+                  ))
+                : array_filter([$settings->stripe_customer_id ?? null]);
+
+            if (! $customerIds) continue;
+
+            $stripeInvoices = [];
+            foreach ($customerIds as $cid) {
+                $res = Http::withToken($key)->timeout(20)->get('https://api.stripe.com/v1/invoices', [
+                    'customer' => $cid,
+                    'status'   => 'paid',
+                    'limit'    => 100,
+                ]);
+                foreach (($res->json()['data'] ?? []) as $si) {
+                    $stripeInvoices[$si['id']] = $si;
+                }
+            }
+
+            foreach ($stripeInvoices as $si) {
                 $number = $si['number'] ?? null;
                 $total  = (int) ($si['total'] ?? 0);
+
+                if ($wanted && ! in_array($number, $wanted, true) && ! in_array($si['id'], $wanted, true)) {
+                    continue;
+                }
 
                 // Zero-amount invoices are subscription prorations and credit notes, not
                 // revenue. Importing them would put £0 rows in the tax report.
@@ -152,5 +195,37 @@ class BillingBackfillStripe extends Command
         $this->info("Imported {$imported}, skipped {$skipped}.");
 
         return self::SUCCESS;
+    }
+    /**
+     * Every Stripe customer id plausibly belonging to this agent.
+     *
+     * The configured id, plus any customer matching the agent email or the billing
+     * contact email. Duplicate customer records are normal in an account this old —
+     * one created by hand years ago, another by a later automated flow — and the
+     * payment can sit on either.
+     */
+    private function customerIdsFor(string $key, object $settings, object $agent): array
+    {
+        $ids = [];
+
+        if (! empty($settings->stripe_customer_id)) {
+            $ids[] = $settings->stripe_customer_id;
+        }
+
+        $emails = array_filter([
+            $agent->email ?? null,
+            $settings->billing_contact_email ?? null,
+            $settings->notification_email ?? null,
+        ]);
+
+        foreach (array_unique($emails) as $email) {
+            $res = Http::withToken($key)->timeout(20)
+                ->get("https://api.stripe.com/v1/customers", ["email" => $email, "limit" => 10]);
+            foreach (($res->json()["data"] ?? []) as $c) {
+                $ids[] = $c["id"];
+            }
+        }
+
+        return array_values(array_unique($ids));
     }
 }
