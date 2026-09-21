@@ -152,8 +152,27 @@ class BillingRunMonthly extends Command
                 continue;
             }
 
-            // Age from when it was sent, not when it was issued, for the same reason.
-            $age = (int) Carbon::parse($invoice->sent_at)->startOfDay()->diffInDays(Carbon::now()->startOfDay());
+            // Nor can an invoice be overdue BEFORE ITS DUE DATE. October's invoices were
+            // sent early, on 21 September, so ageing from sent_at alone would have
+            // charged a client's card on 24 September for a period that had not started
+            // — and chased them for it. Sending an invoice early is a courtesy; billing
+            // early is not.
+            if ($invoice->due_date && Carbon::now()->startOfDay()->lt($invoice->due_date->startOfDay())) {
+                continue;
+            }
+
+            // The dunning clock starts when the invoice becomes DUE, or when it was sent
+            // if that is later — never from whichever happened first.
+            //
+            // Ageing from sent_at alone meant October's invoices, sent early on 21
+            // September, were already 10 days "overdue" on 1 October: past the 7-day
+            // grace, so they would have skipped both retries and gone straight to
+            // restricting the site on the very day payment first became due.
+            $clockStart = $invoice->due_date && $invoice->due_date->gt($invoice->sent_at)
+                ? $invoice->due_date->copy()->startOfDay()
+                : Carbon::parse($invoice->sent_at)->startOfDay();
+
+            $age = (int) $clockStart->diffInDays(Carbon::now()->startOfDay());
 
             if ($age > $grace) {
                 $settings = $invoice->agent?->settings;
