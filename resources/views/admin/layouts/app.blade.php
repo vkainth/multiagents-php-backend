@@ -197,8 +197,17 @@
             <i class="fa-solid fa-chart-bar"></i> Analytics
         </a>
         <div class="ad-nav-section">Revenue</div>
+        <a href="{{ route('admin.invoices.index') }}" class="ad-nav-item {{ Request::routeIs('admin.invoices.index') || Request::routeIs('admin.invoices.show') || Request::routeIs('admin.invoices.addons*') ? 'active' : '' }}">
+            <i class="fa-solid fa-file-invoice-dollar"></i> Invoices
+        </a>
+        <a href="{{ route('admin.invoices.tax') }}" class="ad-nav-item {{ Request::routeIs('admin.invoices.tax*') ? 'active' : '' }}">
+            <i class="fa-solid fa-receipt"></i> Income &amp; GST
+        </a>
+        {{-- Stripe subscriptions. Retired in favour of first-party invoicing above —
+             kept visible only because the Stripe customer ids and webhook state still
+             live behind it. --}}
         <a href="{{ route('admin.billing.index') }}" class="ad-nav-item {{ Request::routeIs('admin.billing.*') ? 'active' : '' }}">
-            <i class="fa-brands fa-stripe-s"></i> Billing
+            <i class="fa-brands fa-stripe-s"></i> Stripe (legacy)
         </a>
         <div class="ad-nav-section">Settings</div>
         <a href="{{ route('admin.feature-flags.index') }}" class="ad-nav-item {{ Request::routeIs('admin.feature-flags.*') ? 'active' : '' }}">
