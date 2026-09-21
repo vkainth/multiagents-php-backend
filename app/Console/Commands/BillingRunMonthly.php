@@ -40,14 +40,19 @@ class BillingRunMonthly extends Command
     {
         $dry = (bool) $this->option('dry-run');
 
-        $period = $this->option('period')
-            ? Carbon::createFromFormat('Y-m', $this->option('period'))->startOfMonth()
-            : Carbon::now()->startOfMonth();
+        // A DATE, not a month start. Each site resolves its own period from this using
+        // its anchor day, so the run must be told "when is it", not "which month".
+        // Passing the 1st would make an agent anchored on the 21st resolve to the
+        // PREVIOUS cycle and bill them for a period they have already paid.
+        // --period=YYYY-MM uses that month's end so the anchor lands inside it.
+        $runFor = $this->option('period')
+            ? Carbon::createFromFormat('Y-m', $this->option('period'))->endOfMonth()
+            : Carbon::now();
 
-        $this->info('Billing run for ' . $period->format('F Y') . ($dry ? '  [DRY RUN — nothing will be written]' : ''));
+        $this->info('Billing run as at ' . $runFor->toDateString() . ($dry ? '  [DRY RUN — nothing will be written]' : ''));
 
         if (! $this->option('retries-only')) {
-            $this->issueForPeriod($invoices, $stripe, $pdf, $period, $dry);
+            $this->issueForPeriod($invoices, $stripe, $pdf, $runFor, $dry);
         }
 
         $this->retryUnpaid($stripe, $pdf, $dry);
@@ -67,13 +72,18 @@ class BillingRunMonthly extends Command
         return $query->get();
     }
 
-    private function issueForPeriod(InvoiceService $invoices, StripeBilling $stripe, InvoicePdf $pdf, Carbon $period, bool $dry): void
+    private function issueForPeriod(InvoiceService $invoices, StripeBilling $stripe, InvoicePdf $pdf, Carbon $runFor, bool $dry): void
     {
         foreach ($this->billableAgents() as $agent) {
             $settings = $agent->settings;
 
-            // Never retro-bill a site for months before it went live.
-            if ($settings->billing_starts_on && $period->lt(Carbon::parse($settings->billing_starts_on)->startOfMonth())) {
+            // Each site bills on its OWN anchor day, not the 1st of the month. Sharene's
+            // cycle runs from the 21st, so billing her on the 1st would invoice her for a
+            // period she is already paid up on and shift every future period by ten days.
+            $period = $this->periodStartFor((int) ($settings->billing_anchor_day ?: 1), $runFor);
+
+            // Never retro-bill a site for periods before it went live.
+            if ($settings->billing_starts_on && $period->lt(Carbon::parse($settings->billing_starts_on)->startOfDay())) {
                 $this->line("  {$agent->slug}: skipped — billing starts {$settings->billing_starts_on}");
                 continue;
             }
@@ -134,7 +144,16 @@ class BillingRunMonthly extends Command
         $grace     = (int) config('invoicing.grace_period_days', 7);
 
         foreach ($open as $invoice) {
-            $age = (int) Carbon::parse($invoice->issue_date)->startOfDay()->diffInDays(Carbon::now()->startOfDay());
+            // An invoice that was never SENT cannot be overdue. Nobody has been asked to
+            // pay it, so retrying the card against it and eventually withholding their
+            // leads would be penalising a customer for our own inaction — and the clock
+            // would have started on the issue date, which may be weeks earlier.
+            if (! $invoice->sent_at) {
+                continue;
+            }
+
+            // Age from when it was sent, not when it was issued, for the same reason.
+            $age = (int) Carbon::parse($invoice->sent_at)->startOfDay()->diffInDays(Carbon::now()->startOfDay());
 
             if ($age > $grace) {
                 $settings = $invoice->agent?->settings;
@@ -258,5 +277,27 @@ class BillingRunMonthly extends Command
             $this->error('    email failed: ' . $e->getMessage());
             Log::warning('Invoice email failed for ' . $invoice->invoice_number . ': ' . $e->getMessage());
         }
+    }
+    /**
+     * Start of the billing period that CONTAINS $ref, for a site anchored on $anchorDay.
+     *
+     * Clamped to the month length so a site anchored on the 31st still bills in
+     * February rather than silently skipping it, and subMonthNoOverflow avoids the
+     * classic March-31 minus one month lands on March-3 bug.
+     */
+    private function periodStartFor(int $anchorDay, Carbon $ref): Carbon
+    {
+        $ref = $ref->copy()->startOfDay();
+        $anchorDay = max(1, min(31, $anchorDay));
+
+        $thisMonth = $ref->copy()->day(min($anchorDay, $ref->daysInMonth));
+
+        if ($ref->gte($thisMonth)) {
+            return $thisMonth;
+        }
+
+        $prev = $ref->copy()->subMonthNoOverflow()->startOfMonth();
+
+        return $prev->day(min($anchorDay, $prev->daysInMonth));
     }
 }
