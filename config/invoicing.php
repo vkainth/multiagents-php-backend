@@ -21,7 +21,7 @@ return [
     'company_phone'   => env('INVOICE_COMPANY_PHONE', '+1 604-639-5434'),
     'company_address' => env('INVOICE_COMPANY_ADDRESS', "151 West Hastings Street\nVancouver British Columbia V6B 1H4\nCanada"),
     'company_email'   => env('INVOICE_COMPANY_EMAIL', 'billing@pixilink.com'),
-    'gst_number'      => env('INVOICE_GST_NUMBER', 'RT001856225727'),
+    'gst_number'      => env('INVOICE_GST_NUMBER', '856225727RT0001'),
 
     /*
     |--------------------------------------------------------------------------
