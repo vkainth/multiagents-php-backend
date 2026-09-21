@@ -176,6 +176,13 @@ class BillingRunMonthly extends Command
 
             if (! $dry) {
                 $this->attemptCharge($invoice, $stripe, $pdf);
+
+                // Deliberate, dated follow-up — the only reminders anyone receives.
+                // Sent after the retry so a card that has since been added results in a
+                // receipt rather than a chase.
+                if (! $invoice->refresh()->isPaid()) {
+                    $this->sendReminder($invoice, $stripe, $pdf, $age);
+                }
             }
         }
     }
@@ -234,13 +241,20 @@ class BillingRunMonthly extends Command
                 Log::warning('Could not build card link for ' . $invoice->invoice_number . ': ' . $linkErr->getMessage());
             }
 
-            $this->emailInvoice(
-                $invoice,
-                $pdf,
-                paid: false,
-                payUrl: $payUrl,
-                problem: in_array($e->stripeCode, ['no_card', 'no_customer'], true) ? 'no_card' : 'declined',
-            );
+            // Only email if they have NOT already been told about this invoice. The run
+            // is daily now, and it re-attempts every open invoice each morning — without
+            // this guard Randy and Nav would receive the same "no card on file" email
+            // every single day until they act, which trains people to ignore us.
+            // Deliberate follow-ups happen on the retry days, via sendReminder().
+            if (! $invoice->sent_at) {
+                $this->emailInvoice(
+                    $invoice,
+                    $pdf,
+                    paid: false,
+                    payUrl: $payUrl,
+                    problem: in_array($e->stripeCode, ['no_card', 'no_customer'], true) ? 'no_card' : 'declined',
+                );
+            }
         }
     }
 
@@ -292,6 +306,55 @@ class BillingRunMonthly extends Command
      * February rather than silently skipping it, and subMonthNoOverflow avoids the
      * classic March-31 minus one month lands on March-3 bug.
      */
+    /**
+     * A payment reminder on a retry day.
+     *
+     * Separate from emailInvoice so a reminder reads like a reminder rather than the
+     * original invoice arriving again, and so it states what happens next — people
+     * respond to a specific consequence with a date on it, not to a repeated attachment.
+     */
+    private function sendReminder(Invoice $invoice, StripeBilling $stripe, InvoicePdf $pdf, int $age): void
+    {
+        $to = $invoice->bill_to_email;
+        if (! $to) {
+            return;
+        }
+
+        $grace = (int) config('invoicing.grace_period_days', 7);
+
+        try {
+            $payer   = $invoice->billTo()->with('settings')->first();
+            $hasCard = $payer ? $stripe->hasCard($payer) : false;
+            $payUrl  = (! $hasCard && $payer) ? $stripe->cardLinkFor($payer) : null;
+
+            $daysLeft = max(0, $grace - $age);
+            $company  = $invoice->company_name ?: config('invoicing.company_name');
+
+            $body = "A reminder that invoice {$invoice->invoice_number} is still outstanding.\n\n"
+                . 'Amount due: ' . Invoice::formatMoney($invoice->balanceCents()) . " (includes {$invoice->tax_label})\n"
+                . 'Sent: ' . $invoice->sent_at->format('M j, Y') . "\n"
+                . ($payUrl
+                    ? "\nThere is no card on file. Add one here and it will be settled automatically:\n\n{$payUrl}\n"
+                    : "\nWe will try the card on file again shortly.\n")
+                . ($daysLeft > 0
+                    ? "\nIf it is still unpaid in {$daysLeft} day" . ($daysLeft === 1 ? '' : 's') . ", new enquiries from your\n"
+                      . "site will be held rather than delivered until payment clears. They are never lost.\n"
+                    : '')
+                . "\n{$company}\n";
+
+            Mail::raw($body, function ($m) use ($to, $invoice, $pdf, $payUrl, $hasCard) {
+                $m->to($to)
+                  ->from(config('mail.lead_from.address'), config('invoicing.company_name'))
+                  ->subject('Reminder: invoice ' . $invoice->invoice_number . ' is outstanding')
+                  ->attachData($pdf->render($invoice, $payUrl, $hasCard), $pdf->filename($invoice), ['mime' => 'application/pdf']);
+            });
+
+            $this->info('    reminder sent to ' . $to);
+        } catch (\Throwable $e) {
+            Log::warning('Reminder failed for ' . $invoice->invoice_number . ': ' . $e->getMessage());
+        }
+    }
+
     /**
      * The explanation a customer actually needs, per failure mode.
      *
