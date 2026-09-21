@@ -188,6 +188,28 @@ class StripeBilling
         ], ['Idempotency-Key' => 'inv-' . $invoice->invoice_number]);
     }
 
+    /** True when this agent has at least one card stored. */
+    public function hasCard(Agent $agent): bool
+    {
+        return $this->resolvePaymentMethod($agent) !== null;
+    }
+
+    /**
+     * Stable, signed, self-serve card link for an invoice email or PDF.
+     *
+     * NOT a Stripe Checkout URL: those expire after 24 hours, and an invoice is read
+     * whenever the recipient gets to it. This points at our own signed route, which
+     * mints a fresh Stripe session on click, so it still works weeks later.
+     */
+    public function cardLinkFor(Agent $agent, int $validDays = 45): string
+    {
+        return \Illuminate\Support\Facades\URL::temporarySignedRoute(
+            'billing.card.add',
+            now()->addDays($validDays),
+            ['agent' => $agent->id],
+        );
+    }
+
     /** Void an invoice raised in Stripe before this system existed. */
     public function voidStripeInvoice(string $stripeInvoiceId): array
     {

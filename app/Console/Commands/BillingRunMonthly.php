@@ -195,16 +195,25 @@ class BillingRunMonthly extends Command
             $this->error('    charge failed: ' . $e->getMessage());
             Log::warning('Invoice ' . $invoice->invoice_number . ' charge failed: ' . $e->getMessage());
 
-            // No card on file is not a decline — it means we never asked for one. Email
-            // the invoice so the agent can act rather than silently failing every month.
+            // No card on file is not a decline — it means we never asked for one. Send
+            // the invoice WITH a self-serve card link so the agent can fix it themselves,
+            // instead of a dead end that routes every case back through us by hand.
             if (in_array($e->stripeCode, ['no_card', 'no_customer'], true)) {
-                $this->emailInvoice($invoice, $pdf, paid: false);
+                $payUrl = null;
+                try {
+                    $payer  = $invoice->billTo()->with('settings')->first();
+                    $payUrl = $payer ? $stripe->cardLinkFor($payer) : null;
+                } catch (\Throwable $linkErr) {
+                    Log::warning('Could not build card link for ' . $invoice->invoice_number . ': ' . $linkErr->getMessage());
+                }
+
+                $this->emailInvoice($invoice, $pdf, paid: false, payUrl: $payUrl);
             }
         }
     }
 
     /** Email the invoice PDF: a receipt when paid, a request when not. */
-    private function emailInvoice(Invoice $invoice, InvoicePdf $pdf, bool $paid): void
+    private function emailInvoice(Invoice $invoice, InvoicePdf $pdf, bool $paid, ?string $payUrl = null): void
     {
         $to = $invoice->bill_to_email;
         if (! $to) {
@@ -213,7 +222,7 @@ class BillingRunMonthly extends Command
         }
 
         try {
-            $bytes   = $pdf->render($invoice);
+            $bytes   = $pdf->render($invoice, $payUrl, hasCard: $paid);
             $company = $invoice->company_name ?: config('invoicing.company_name');
 
             $body = $paid
@@ -224,7 +233,15 @@ class BillingRunMonthly extends Command
                   . "\nYour invoice is attached as a PDF.\n\n{$company}\n"
                 : "Your invoice {$invoice->invoice_number} is attached.\n\n"
                   . 'Amount due: ' . Invoice::formatMoney($invoice->balanceCents()) . " (includes {$invoice->tax_label})\n"
-                  . "\nWe could not charge a card on file. Please reply to this email and we will send a secure link to add one.\n\n{$company}\n";
+                  . ($invoice->period_start ? 'Period: ' . $invoice->period_start->format('M j') . ' – ' . $invoice->period_end->format('M j, Y') . "\n" : '')
+                  . ($payUrl
+                      ? "\nThere is no card on file for this account. Add one here and the invoice will be\n"
+                        . "charged automatically — it takes about a minute, and the page is hosted by Stripe:\n\n"
+                        . "{$payUrl}\n\n"
+                        . "This link is valid for 45 days.\n"
+                      : "\nWe were unable to charge the card on file. Please reply to this email and we\n"
+                        . "will sort it out.\n")
+                  . "\n{$company}\n";
 
             Mail::raw($body, function ($m) use ($to, $invoice, $bytes, $paid, $pdf) {
                 $m->to($to)

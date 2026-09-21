@@ -115,3 +115,10 @@ Route::domain('website.pixilink.com')->group(function () {
  Note: route overrides for testing, keeping at-the-end
  */
 if(file_exists(__DIR__.'/dev/tester.php')){ require __DIR__.'/dev/tester.php'; }
+
+// Self-serve card capture from an invoice link. Signed URLs (see BillingCardController):
+// possession only allows ADDING a card to that customer, never reading anything.
+Route::get('/billing/add-card/{agent}', [\App\Http\Controllers\BillingCardController::class, 'add'])
+    ->name('billing.card.add')->middleware('signed')->where('agent', '[0-9]+');
+Route::get('/billing/card-done', [\App\Http\Controllers\BillingCardController::class, 'done'])
+    ->name('billing.card.done');

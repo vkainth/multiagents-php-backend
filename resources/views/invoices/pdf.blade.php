@@ -121,7 +121,19 @@
     @endif
   </div>
   @unless($invoice->isPaid() || $invoice->isVoid())
-    <div class="paylink">Charged automatically to the card on file.</div>
+    {{-- Never assert auto-charge without a card actually on file. That line was printing
+         on invoices for agents who have none — an untrue statement on the document the
+         customer is holding, and it also hides the fact that they need to do something. --}}
+    @if($payUrl)
+      {{-- Clickable, like the reference invoice's "Pay online". The signed URL is ~140
+           characters, so printing it raw would dominate the page; the covering email
+           carries it in plain text as well for anyone reading a printed copy. --}}
+      <div class="paylink"><a href="{{ $payUrl }}" style="color:#3b5bdb;">Pay online — add your card</a></div>
+    @elseif($hasCard)
+      <div class="paylink">Charged automatically to the card on file.</div>
+    @else
+      <div class="paylink">Payable on receipt.</div>
+    @endif
   @else
     <div class="paylink">&nbsp;</div>
   @endunless

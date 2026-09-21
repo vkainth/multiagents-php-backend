@@ -8,8 +8,14 @@ use Dompdf\Options;
 
 class InvoicePdf
 {
-    /** Render an invoice to PDF bytes. */
-    public function render(Invoice $invoice): string
+    /**
+     * Render an invoice to PDF bytes.
+     *
+     * $payUrl is the self-serve card link, passed in by the caller rather than looked up
+     * here: this runs on every admin preview and every download, and an invoice render
+     * should not make a live Stripe call. $hasCard likewise — the caller already knows.
+     */
+    public function render(Invoice $invoice, ?string $payUrl = null, bool $hasCard = false): string
     {
         $invoice->loadMissing(['lines', 'agent.settings', 'billTo']);
 
@@ -26,6 +32,8 @@ class InvoicePdf
             'site'        => $site,
             'taxableBase' => $taxableBase,
             'logo'        => $this->logoPath(),
+            'payUrl'      => $payUrl,
+            'hasCard'     => $hasCard,
         ])->render();
 
         $options = new Options();
