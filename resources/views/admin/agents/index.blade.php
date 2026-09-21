@@ -55,10 +55,21 @@
                     <td style="font-size:12px;color:#6b7280;white-space:nowrap;">
                         {{ $agent->last_login_at ? $agent->last_login_at->diffForHumans() : 'Never' }}
                     </td>
-                    <td>
+                    <td style="white-space:nowrap;">
                         <a href="{{ route('admin.agents.edit', $agent) }}" class="ad-btn ad-btn--outline ad-btn--sm" onclick="event.stopPropagation()">
                             Edit
                         </a>
+                        {{-- Opens the agent's own portal in a new tab, signed in as them.
+                             POST + CSRF so it cannot be triggered by a link or an image
+                             on some other page. Read-only, logged, and banner-marked. --}}
+                        <form method="POST" action="{{ route('admin.agents.impersonate', $agent) }}"
+                              target="_blank" style="display:inline;" onclick="event.stopPropagation()">
+                            @csrf
+                            <button type="submit" class="ad-btn ad-btn--outline ad-btn--sm"
+                                    title="Open this agent's portal as them (read-only, logged)">
+                                View portal
+                            </button>
+                        </form>
                     </td>
                 </tr>
                 @empty

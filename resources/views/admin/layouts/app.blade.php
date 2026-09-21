@@ -209,6 +209,9 @@
         <a href="{{ route('admin.billing.index') }}" class="ad-nav-item {{ Request::routeIs('admin.billing.*') ? 'active' : '' }}">
             <i class="fa-brands fa-stripe-s"></i> Stripe (legacy)
         </a>
+        <a href="{{ route('admin.impersonations') }}" class="ad-nav-item {{ Request::routeIs('admin.impersonations') ? 'active' : '' }}">
+            <i class="fa-solid fa-user-shield"></i> Portal access log
+        </a>
         <div class="ad-nav-section">Settings</div>
         <a href="{{ route('admin.feature-flags.index') }}" class="ad-nav-item {{ Request::routeIs('admin.feature-flags.*') ? 'active' : '' }}">
             <i class="fa-solid fa-toggle-on"></i> Feature Flags

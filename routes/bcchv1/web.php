@@ -647,6 +647,13 @@ Route::prefix('admin')->name('admin.')->group(function () {
             Route::post('/generate-pulse',        'generatePulse')->name('generatePulse');
         });
 
+        // View an agent's portal as them. POST-only: a GET would be triggerable by an
+        // <img> tag on any page an admin happened to visit while signed in.
+        Route::post('/agents/{agent}/impersonate', [\App\Http\Controllers\Admin\ImpersonationController::class, 'start'])
+            ->name('agents.impersonate')->where('agent', '[0-9]+');
+        Route::get('/impersonations', [\App\Http\Controllers\Admin\ImpersonationController::class, 'log'])
+            ->name('impersonations');
+
         // First-party invoicing. Separate from the Stripe-subscription screens below,
         // which are being retired: we issue our own invoices and use Stripe only to
         // charge the stored card.

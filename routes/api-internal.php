@@ -252,6 +252,18 @@ Route::prefix('admin')->middleware([\App\Http\Middleware\VerifyAdminSecret::clas
     Route::get('sold-gate-stats-by-day', [AgentDataController::class, 'soldGateStatsByDay']);
     Route::get('platform-summary', [AdminInternalController::class, 'platformSummary']);
     Route::post('agents/{id}/ai-pages', [AdminInternalController::class, 'saveAiPages'])->where('id', '[a-zA-Z0-9_-]+');
+    // First-party invoicing for the Next.js admin (the one served on each agent domain).
+    Route::get('invoices',                 [\App\Http\Controllers\Internal\AdminInvoiceApiController::class, 'index']);
+    Route::get('invoices/tax',             [\App\Http\Controllers\Internal\AdminInvoiceApiController::class, 'taxReport']);
+    Route::get('invoices/tax/export',      [\App\Http\Controllers\Internal\AdminInvoiceApiController::class, 'taxExport']);
+    Route::get('invoices/{id}',            [\App\Http\Controllers\Internal\AdminInvoiceApiController::class, 'show'])->where('id', '[0-9]+');
+    Route::get('invoices/{id}/pdf',        [\App\Http\Controllers\Internal\AdminInvoiceApiController::class, 'pdf'])->where('id', '[0-9]+');
+    Route::post('invoices/{id}/action',    [\App\Http\Controllers\Internal\AdminInvoiceApiController::class, 'action'])->where('id', '[0-9]+');
+    Route::get('agents/{id}/billing-addons',    [\App\Http\Controllers\Internal\AdminInvoiceApiController::class, 'addons'])->where('id', '[0-9]+');
+    Route::post('agents/{id}/billing-addons',   [\App\Http\Controllers\Internal\AdminInvoiceApiController::class, 'addonCreate'])->where('id', '[0-9]+');
+    Route::delete('billing-addons/{addonId}',   [\App\Http\Controllers\Internal\AdminInvoiceApiController::class, 'addonDelete'])->where('addonId', '[0-9]+');
+    Route::get('agents/{id}/card-link',     [\App\Http\Controllers\Internal\AdminInvoiceApiController::class, 'cardLink'])->where('id', '[0-9]+');
+
     Route::get('agents/{id}/ai-pages', [AdminInternalController::class, 'listAiPages'])->where('id', '[a-zA-Z0-9_-]+');
 
     Route::get('agents/{id}/landing-pages', [AgentDataController::class, 'adminLandingPagesList'])->where('id', '[a-zA-Z0-9_-]+');
@@ -284,6 +296,8 @@ Route::prefix('admin')->middleware([\App\Http\Middleware\VerifyAdminSecret::clas
 Route::prefix('agent-portal')->middleware([\App\Http\Middleware\VerifyAdminSecret::class, 'throttle:agent-portal'])->group(function () {
     Route::post('auth',                           [AdminInternalController::class, 'agentPortalAuth']);
     Route::post("auth/verify",                    [AdminInternalController::class, "agentPortalAuthVerify"]);
+    // Redeems a one-time admin impersonation token, issued from the admin agents list.
+    Route::post("impersonate/consume",            \App\Http\Controllers\Internal\ImpersonationConsumeController::class);
     Route::get('{id}/dashboard',                  [AdminInternalController::class, 'agentPortalDashboard'])->where('id', '[0-9]+');
     Route::get('{id}/leads',                      [AdminInternalController::class, 'agentPortalLeads'])->where('id', '[0-9]+');
     Route::get('{id}/profile',                    [AdminInternalController::class, 'agentPortalProfile'])->where('id', '[0-9]+');
