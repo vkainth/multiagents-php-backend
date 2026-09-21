@@ -291,6 +291,11 @@ Route::prefix('agent-portal')->middleware([\App\Http\Middleware\VerifyAdminSecre
     Route::get('{id}/featured-listings',          [AdminInternalController::class, 'agentPortalFeaturedListings'])->where('id', '[0-9]+');
     Route::get('{id}/settings',                   [AdminInternalController::class, 'agentPortalSettings'])->where('id', '[0-9]+');
     Route::get('{id}/integrations',               [AdminInternalController::class, 'agentPortalIntegrationsGet'])->where('id', '[0-9]+');
+    // Invoices the agent can view and download. Entitlement is checked inside the
+    // controller against BOTH agent_id and bill_to_agent_id, so a shared site's
+    // non-paying agent cannot pull the payer's documents.
+    Route::get('{id}/invoices',                   [\App\Http\Controllers\Internal\AgentPortalInvoiceController::class, 'index'])->where('id', '[0-9]+');
+    Route::get('{id}/invoices/{invoice}/pdf',     [\App\Http\Controllers\Internal\AgentPortalInvoiceController::class, 'pdf'])->where('id', '[0-9]+')->where('invoice', '[0-9]+');
     Route::put('{id}/integrations',               [AdminInternalController::class, 'agentPortalIntegrationsUpdate'])->where('id', '[0-9]+');
 });
 

@@ -2038,8 +2038,27 @@ class AgentDataController extends Controller
             // the path omitted the /manage segment the admin UI actually uses.
             . "View leads: " . $agent->adminUrl("/admin/agents/{$agent->id}/manage/leads") . "\n";
 
+        // Billing restriction: the lead is ALREADY SAVED above and stays saved. Only the
+        // notification is withheld while the account is past due.
+        //
+        // Capture is never switched off. A withheld lead is released in full the moment
+        // payment clears; a prospect met with a dead form is gone permanently and no
+        // payment brings them back. The commercial pressure is identical and only one of
+        // the two is reversible.
+        $billingRestricted = (bool) $agent->settings?->billing_restricted_at;
+        if ($billingRestricted) {
+            // The row is inserted with DB::table()->insert() above, so there is no model
+            // instance to take an id from; the form type and timestamp are enough to find
+            // the withheld rows again when the account is brought current.
+            \Illuminate\Support\Facades\Log::info('Lead notification withheld (billing restricted)', [
+                'agent'     => $agent->slug,
+                'form_type' => $contactFormType ?? null,
+                'at'        => now()->toDateTimeString(),
+            ]);
+        }
+
         // Agent notification email (non-blocking — lead is already saved).
-        if ($notifyEmail) {
+        if ($notifyEmail && ! $billingRestricted) {
             try {
                 \Illuminate\Support\Facades\Mail::raw(
                     $body,
@@ -2078,7 +2097,11 @@ class AgentDataController extends Controller
         }
 
         // SMS notification if enabled for this lead type.
-        if ($agent->settings?->getNotifPref($contactFormType, 'sms') ?? false) {
+        // SMS is withheld under a billing restriction for the same reason as email —
+        // otherwise the agent still gets the lead instantly by text and the restriction
+        // means nothing. The platform backup copy above is deliberately NOT withheld:
+        // it goes to us, not to the agent, so it is not a lead being delivered.
+        if (! $billingRestricted && ($agent->settings?->getNotifPref($contactFormType, 'sms') ?? false)) {
             $smsPhone = $agent->settings?->notification_phone;
             if ($smsPhone && config('services.twilio.sid') && config('services.twilio.token')) {
                 try {
