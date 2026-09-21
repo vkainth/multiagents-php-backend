@@ -122,8 +122,12 @@ class InvoiceService
             'gst_number'       => config('invoicing.gst_number') ?: null,
             'company_name'     => config('invoicing.company_name'),
             'company_address'  => config('invoicing.company_address') ?: null,
-            'bill_to_name'     => $billTo->name,
-            'bill_to_email'    => $billTo->settings?->notification_email ?: $billTo->email,
+            // Explicit billing contact wins over the payer agent's own details: the
+            // person who pays is not always an agent record (Randy pays for the site
+            // whose agent is now Neb, and has no agent row of his own).
+            'bill_to_name'     => $settings?->billing_contact_name ?: $billTo->name,
+            'bill_to_email'    => $settings?->billing_contact_email
+                ?: ($billTo->settings?->notification_email ?: $billTo->email),
         ]);
 
         $dueDays = (int) config('invoicing.due_days', 0);
